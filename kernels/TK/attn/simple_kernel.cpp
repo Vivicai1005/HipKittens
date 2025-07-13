@@ -105,7 +105,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
 
         // 10.            p'_ij = exp(S_ij - m'_ij) (16x16)
         sub_row(att_block, att_block, max_vec);
-        exp2(att_block, att_block);
+        exp(att_block, att_block);
 
         // 11.            l'_ij = row_sum(p'_ij) (16x1)
         row_sum(norm_vec, att_block);
@@ -115,10 +115,10 @@ __global__ void attend_ker(const attn_globals<D> g) {
 
         // 13.            l_i_new = exp(m_i - m_i_new) * l_i + exp(m'_ij - m_i_new) * l'_ij (16x1)
         sub(max_vec_last, max_vec_last, max_vec_new);
-        exp2(max_vec_last, max_vec_last);
+        exp(max_vec_last, max_vec_last);
 
         sub(max_vec, max_vec, max_vec_new);
-        exp2(max_vec, max_vec);
+        exp(max_vec, max_vec);
 
         mul(norm_vec_last, max_vec_last, norm_vec_last);
         mul(norm_vec, max_vec, norm_vec);

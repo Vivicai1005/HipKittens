@@ -22,3 +22,8 @@ Hardware Overview:
 | SGPRs per SIMD              | ~800–1024                 | Scalar register file                            |
 | Max Clock Speed             | 2200 MHz                  | From `rocminfo`                                 |
 | Memory Bandwidth            | ~5.2 TB/s                 | With 12
+
+
+Notes:
+- 32 XCDs, 8 CUs per XCD [CDNA4 Guide](https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf?utm_source=chatgpt.com)
+

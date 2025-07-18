@@ -189,6 +189,7 @@ __device__ inline static void load_async_shared_to_register(RT &dst, const ST &s
     for(int j = 0; j < dst.width; j++) {
         const int col = j*dst.tile_size_col + col_offset;
         uint32_t addr = src.idx(src_ptr, {row_offset, col});
+        
         #pragma unroll
         for(int i = 0; i < dst.height; i++) {
             const int row = i*dst.tile_size_row + row_offset;
@@ -256,16 +257,17 @@ __device__ inline void load_global_to_shared_direct(
 
     int thread_id = threadIdx.x % N_THREADS;
 
+    const int swizzle_bytes = ST::swizzle_bytes;
+    static constexpr int swizzle_repeat = swizzle_bytes << 3; // 8 threads max out the banks
+
+    #pragma unroll
     for (int i = thread_id; i < total_vecs; i += N_THREADS) {
         const int row = i / vecs_per_row;
         const int col = (i % vecs_per_row) * vec_len;
         const int global_elem_offset = (row * row_stride + col) * sizeof(T);
 
-        const int swizzle_bytes = ST::swizzle_bytes;
-        static constexpr int swizzle_repeat = swizzle_bytes << 3; // 8 threads max out the banks
         const int swizzle = ((global_elem_offset % swizzle_repeat) >> 7) << 4;
         const int final_global_elem_offset = (global_elem_offset ^ swizzle);
-        printf("threadIdx.x: %d, row: %d, col: %d, global_elem_offset: %d, final_global_elem_offset: %d\n", threadIdx.x, row, col, global_elem_offset, final_global_elem_offset);
 
         const T* lds_base = &dst.data[0];
         const T* lds_elem_ptr = lds_base + row * ST::cols + col;
@@ -315,11 +317,11 @@ __device__ inline static void load_lds_reg(RT &dst, const ST &src) {
     using T  = base_types::packing<T2>::unpacked_type;
     using U  = ST::dtype;
     using U2 = base_types::packing<U >::packed_type;
+    static_assert(sizeof(U) == 2, "only supporting 16-bit dtypes");
 
     const int laneid = kittens::laneid();
     const uint32_t src_ptr = reinterpret_cast<uintptr_t>(&src.data[0]);
 
-    // printf("laneid: %d\n", laneid);
     int row_offset, col_offset;
     if constexpr (std::is_same_v<typename RT::layout, ducks::rt_layout::row>) {
         row_offset = laneid%16;
@@ -329,7 +331,6 @@ __device__ inline static void load_lds_reg(RT &dst, const ST &src) {
         row_offset = 8*(laneid/16);
         col_offset = laneid%16;
     }
-    // printf("(dst.height, dst.width): (%d, %d)\n", dst.height, dst.width);
     #pragma unroll
     for(int i = 0; i < dst.height; i++) {
         const int row = i*dst.tile_size_row + row_offset;
@@ -338,17 +339,7 @@ __device__ inline static void load_lds_reg(RT &dst, const ST &src) {
             const int col = j*dst.tile_size_col + col_offset;
             if constexpr (std::is_same_v<typename RT::layout, ducks::rt_layout::row>) { // handle the row-major layout
 
-                // const int swizzle_bytes = 128;
-                // static constexpr int swizzle_repeat = swizzle_bytes << 3;
-                // const int base_addr = src_ptr + row * ST::underlying_cols * sizeof(U) + col * sizeof(U);
-                // const int swizzle_addr = ((base_addr % swizzle_repeat) >> 7) << 4;
-                // float2 loaded = load_shared_vec(swizzle_addr);
-
                 const int out_addr = src.idx(src_ptr, {row, col});
-                if (threadIdx.x == 0 || threadIdx.x == 1 || threadIdx.x == 2) { 
-                    printf("threadIdx.x: %d, row: %d, col: %d, out_addr: %x\n", threadIdx.x, row, col, out_addr);
-                }
-
                 float4 loaded = load_shared_vec_b128(out_addr);
                 U2* tmp = reinterpret_cast<U2*>(&loaded);
                 dst.tiles[i][j].data[0] = base_types::convertor<T2, U2>::convert(tmp[0]);
@@ -418,7 +409,6 @@ __device__ inline static void load_linear_pad(RT &dst, const ST &src) {
     const int laneid = kittens::laneid();
     const uint32_t src_ptr = reinterpret_cast<uintptr_t>(&src.data[0]);
 
-    // printf("laneid: %d\n", laneid);
     int row_offset, col_offset;
     if constexpr (std::is_same_v<typename RT::layout, ducks::rt_layout::row>) {
         row_offset = laneid/4;

@@ -81,6 +81,7 @@ void micro_tk(const micro_globals g) {
     // Load first tile into shared memory
     load_global_to_shared_direct<2, false, st_bf<BLOCK_SIZE, K_STEP>, _gl_A, coord<st_bf<BLOCK_SIZE, K_STEP>>, NUM_THREADS>(g.a, {0, 0, row, 0}, As[tic]);
     load_global_to_shared_direct<2, false, st_bf<BLOCK_SIZE, K_STEP>, _gl_B, coord<st_bf<BLOCK_SIZE, K_STEP>>, NUM_THREADS>(g.b, {0, 0, col, 0}, Bs[tic]);
+    __builtin_amdgcn_s_waitcnt(0);
 
     if (warp_row == 1) {
         __builtin_amdgcn_s_barrier();
@@ -95,7 +96,6 @@ void micro_tk(const micro_globals g) {
     uint32_t swizzled_offsets_A[memcpy_per_tile];
     prefill_swizzled_offsets<2, false, st_bf<BLOCK_SIZE, K_STEP>, _gl_A, coord<st_bf<BLOCK_SIZE, K_STEP>>, NUM_THREADS>(g.a, {0, 0, row, 0}, As[tic], swizzled_offsets_A);
     prefill_swizzled_offsets<2, false, st_bf<BLOCK_SIZE, K_STEP>, _gl_B, coord<st_bf<BLOCK_SIZE, K_STEP>>, NUM_THREADS>(g.b, {0, 0, col, 0}, Bs[tic], swizzled_offsets_B);
-    __builtin_amdgcn_s_waitcnt(0);
     __builtin_amdgcn_s_barrier();
 
     #pragma unroll

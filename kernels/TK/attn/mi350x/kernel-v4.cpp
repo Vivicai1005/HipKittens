@@ -38,13 +38,12 @@ void attend_ker(const attn_globals g) {
 
     // Initialize all of the register tiles.
     rt_bf<BLOCK_SIZE, ATTN_D> q_reg, k_reg; // Q and K are both row layout.
-    rt_bf<BLOCK_SIZE, ATTN_D, ducks::rt_layout::col> v_reg, v_reg2;
+    rt_bf<BLOCK_SIZE, ATTN_D, ducks::rt_layout::col> v_reg;
     rt_fl<BLOCK_SIZE, ATTN_D, ducks::rt_layout::col> o_reg;
     rt_fl<BLOCK_SIZE, ATTN_D, ducks::rt_layout::accumulator> o_reg_next;
     rt_fl<BLOCK_SIZE, ATTN_D, ducks::rt_layout::col> o_reg_next_col; // attention tile, in float, for the mma_AB.
     rt_fl<BLOCK_SIZE, BLOCK_SIZE, ducks::rt_layout::accumulator> att_block;
-    rt_fl<BLOCK_SIZE, BLOCK_SIZE, ducks::rt_layout::col> att_block_col;
-    rt_bf<BLOCK_SIZE, BLOCK_SIZE, ducks::rt_layout::col> att_block_col_bf16;
+    rt_fl<BLOCK_SIZE, BLOCK_SIZE, ducks::rt_layout::row> att_block_row;
     rt_bf<BLOCK_SIZE, BLOCK_SIZE, ducks::rt_layout::row> att_block_row_bf16;
     rt_fl<BLOCK_SIZE, BLOCK_SIZE, ducks::rt_layout::col>::col_vec max_vec_last, max_vec, max_vec_new, norm_vec_last, norm_vec, norm_vec_new; 
 
@@ -106,18 +105,18 @@ void attend_ker(const attn_globals g) {
         //  Compute Q_i @ K_j.T 
         __builtin_amdgcn_s_setprio(1);
         mma_ABt(att_block, q_reg, k_reg, att_block);
-        att_block_col = swap_layout_inplace(att_block);
+        att_block_row = swap_layout_inplace(att_block);
         __builtin_amdgcn_s_setprio(0);
         __builtin_amdgcn_s_barrier();
 
         // Softmax
-        mul(att_block_col, att_block_col, scale_factor);
-        row_max(max_vec, att_block_col);  
-        sub_row(att_block_col, att_block_col, max_vec); 
-        exp(att_block_col, att_block_col); 
+        mul(att_block_row, att_block_row, scale_factor);
+        row_max(max_vec, att_block_row);  
+        sub_row(att_block_row, att_block_row, max_vec); 
+        exp(att_block_row, att_block_row); 
 
         // Normalization
-        row_sum(norm_vec, att_block_col);
+        row_sum(norm_vec, att_block_row);
         max(max_vec_new, max_vec_last, max_vec); 
         sub(max_vec_last, max_vec_last, max_vec_new); 
         exp(max_vec_last, max_vec_last);
@@ -129,8 +128,7 @@ void attend_ker(const attn_globals g) {
 
         // V multiplication
         mul_row(o_reg, o_reg, max_vec_last); 
-        copy(att_block_col_bf16, att_block_col);
-        att_block_row_bf16 = swap_layout_inplace(att_block_col_bf16);
+        copy(att_block_row_bf16, att_block_row);
         __builtin_amdgcn_s_setprio(1);
         mma_AB(o_reg_next, att_block_row_bf16, v_reg, o_reg_next);
         o_reg_next_col = swap_layout_inplace(o_reg_next);

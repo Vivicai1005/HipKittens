@@ -58,10 +58,6 @@ struct rv {
     using T = kittens::base_types::packing<_T>::unpacked_type;
     using T2 = kittens::base_types::packing<_T>::packed_type;
     using dtype = std::conditional_t<is_naive, T, T2>; ///< Data type of the matrix elements
-    
-    #ifdef KITTENS_CDNA4
-    static_assert(std::is_same_v<_tile_layout, ducks::rt_layout::row> || std::is_same_v<_tile_layout, ducks::rt_layout::col>, "rv for accumulator tiles are not supported yet.");
-    #endif
 
     static constexpr int length = _length; ///< Length in elements.
     #ifdef KITTENS_CDNA4

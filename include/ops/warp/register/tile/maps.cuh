@@ -158,6 +158,28 @@ __device__ static inline void row_map(T &dst, const T &src, const V &row_values)
         }
     }
 }
+#ifdef KITTENS_CDNA4
+template<typename op, ducks::rt::accumulator_layout T, ducks::rv::all V>
+__device__ static inline void row_map(T &dst, const T &src, const V &row_values) {
+
+    static_assert(std::is_same_v<typename V::dtype, typename T::dtype>); // compatible type
+    static_assert(std::is_same_v<typename V::layout, typename rt_base<typename T::T, typename T::layout>::col_vec_layout>); // compatible layout
+    static_assert(V::outer_dim == T::height); // compatible size
+
+    using dtype = T::dtype;
+
+    #pragma unroll
+    for(int i = 0; i < dst.height; i++) {
+        #pragma unroll
+        for(int j = 0; j < dst.width; j++) {
+            #pragma unroll
+            for(int k = 0; k < dst.packed_per_tile; k++) {
+                dst.tiles[i][j].data[k] = op::template op<dtype>(src.tiles[i][j].data[k], row_values[i][k]);
+            }
+        }
+    }
+}
+#endif
 
 
 // Three-operand row map. Mostly useful for FMA instructions.
@@ -227,6 +249,29 @@ __device__ static inline void row_map(T &dst, const T &a, const T &b, const V &r
         }
     }
 }
+
+#ifdef KITTENS_CDNA4
+template<typename op, ducks::rt::accumulator_layout T, ducks::rv::all V>
+__device__ static inline void row_map(T &dst, const T &a, const T &b, const V &row_values) {
+
+    static_assert(std::is_same_v<typename V::layout, typename rt_base<typename T::T, typename T::layout>::col_vec_layout>); // compatible layout
+    static_assert(std::is_same_v<typename V::dtype, typename T::dtype>); // compatible type
+    static_assert(V::outer_dim == T::height); // compatible size
+
+    using dtype = T::dtype;
+
+    #pragma unroll
+    for(int i = 0; i < dst.height; i++) {
+        #pragma unroll
+        for(int j = 0; j < dst.width; j++) {
+            #pragma unroll
+            for(int k = 0; k < dst.packed_per_tile; k++) {
+                dst.tiles[i][j].data[k] = op::template op<dtype>(a.tiles[i][j].data[k], b.tiles[i][j].data[k], row_values[i][k]);
+            }
+        }
+    }
+}
+#endif
 
 /* ----------  Col major tile maps  ----------*/
 

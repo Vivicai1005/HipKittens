@@ -105,7 +105,11 @@ namespace kittens {
             // printf("Thread: %d, Setting: %d, Sending: %d, From: %d\n", lane, setting, sending, from);
         }
         else {
-            dst_tmp[thread_offset^block_offset^k] = __shfl(src_tmp[thread_offset^send_offset^k], block_src_trans + thread_offset^block_offset^k);
+            int that_is_the_question = (k / 8) * 24;
+            int setting = thread_offset^block_offset^k^to_flip;
+            int sending = thread_offset^send_offset^k^to_flip;
+            int from = block_src_trans + thread_offset^block_offset^k^or_not_to_flip^that_is_the_question;
+            dst_tmp[setting] = __shfl(src_tmp[sending], from);
         }
     }
 
@@ -288,9 +292,9 @@ __device__ inline rt_base<T2, typename ducks::rt_layout::transpose<layout>::type
 }
 
 #ifdef KITTENS_CDNA4
-template<typename T2, ducks::rt_layout::accum layout>
-__device__ inline rt_base<T2, typename ducks::rt_layout::col>& swap_layout_inplace(const rt_base<T2, layout> &src) {
-    rt_base<T2, typename ducks::rt_layout::col> &dst = *(rt_base<T2, typename ducks::rt_layout::col>*)(&src);
+template<typename DesiredLayout, typename T2, ducks::rt_layout::accum layout>
+__device__ inline rt_base<T2, DesiredLayout>& swap_layout_inplace(const rt_base<T2, layout> &src) {
+    rt_base<T2, DesiredLayout> &dst = *(rt_base<T2, DesiredLayout>*)(&src);
     swap_layout(dst, src);
     return dst;
 }
@@ -325,16 +329,16 @@ __device__ static inline rt<T2, _rows, _cols, typename ducks::rt_layout::transpo
 }
 
 #ifdef KITTENS_CDNA4
-template<typename T2, int _rows, int _cols, ducks::rt_layout::accum layout>
-__device__ static inline rt<T2, _rows, _cols, typename ducks::rt_layout::col>& swap_layout_inplace(rt<T2, _rows, _cols, layout> &tile) {
+template<typename DesiredLayout, typename T2, int _rows, int _cols, ducks::rt_layout::accum layout>
+__device__ static inline rt<T2, _rows, _cols, DesiredLayout>& swap_layout_inplace(rt<T2, _rows, _cols, layout> &tile) {
     #pragma unroll
     for(int i = 0; i < tile.height; i++) {
         #pragma unroll
         for(int j = 0; j < tile.width; j++) {
-            swap_layout_inplace(tile.tiles[i][j]);
+            swap_layout_inplace<DesiredLayout>(tile.tiles[i][j]);
         }
     }
-    return *(rt<T2, _rows, _cols, typename ducks::rt_layout::col>*)(&tile);
+    return *(rt<T2, _rows, _cols, DesiredLayout>*)(&tile);
 }
 #endif
 

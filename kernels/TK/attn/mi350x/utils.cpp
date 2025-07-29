@@ -320,19 +320,16 @@ __device__ inline static void load_lds_reg_col(RT &dst, const ST &src) {
     row_offset = (laneid % 16) / 4 + (laneid / 32) * 8;
     col_offset = ((laneid % 4) * 4) + 16*((laneid % 32)/16);
 
-    #pragma unroll 
-    for (int k = 0; k < 2; k++) {
-        row_offset = row_offset + k*16;
+    #pragma unroll
+    for(int j = 0; j < dst.width; j++) {
+        int col = j*dst.tile_size_col + col_offset;
 
+        uint32_t addr0 = src.idx(src_ptr, {row_offset, col});
+        uint32_t addr1 = src.idx(src_ptr, {row_offset + 4, col});
         #pragma unroll
-        for(int j = 0; j < dst.width; j++) {
-            int col = j*dst.tile_size_col + col_offset;
-
-            uint32_t addr0 = src.idx(src_ptr, {row_offset, col});
-            uint32_t addr1 = src.idx(src_ptr, {row_offset + 4, col});
-            #pragma unroll
-            for(int i = 0; i < dst.height; i++) {
-                int row = i*dst.tile_size_row + row_offset;
+        for(int i = 0; i < dst.height; i++) {
+            #pragma unroll 
+            for (int k = 0; k < 2; k++) {
 
                 asm volatile(
                     "ds_read_b64_tr_b16 %0, %2 offset:%4\n"
@@ -340,7 +337,7 @@ __device__ inline static void load_lds_reg_col(RT &dst, const ST &src) {
                     : "=v"(*reinterpret_cast<float2*>(&dst.tiles[i][j].data[k*4])), 
                     "=v"(*reinterpret_cast<float2*>(&dst.tiles[i][j].data[k*4 + 2]))
                     : "v"(addr0), "v"(addr1),
-                    "i"(i * ST::underlying_cols * kittens::TILE_ROW_DIM<U> * sizeof(U))
+                    "i"((i * 2 + k) * ST::underlying_cols * (kittens::TILE_ROW_DIM<U> >> 1) * sizeof(U))
                     : "memory"
                 );  
             }

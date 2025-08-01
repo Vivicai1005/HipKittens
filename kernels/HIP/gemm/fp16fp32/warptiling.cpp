@@ -118,14 +118,14 @@ extern "C" __global__ void matmul_kernel(int M, int N, int K, __half *A, __half 
     const uint warpRow = warpIdx / (BN / WN);
 
     // size of the warp subtile
-    constexpr uint WMITER = (WM * WN) / (WARPSIZE * TM * TN * WNITER);
-    constexpr uint WSUBM = WM / WMITER; // 64/1=64
-    constexpr uint WSUBN = WN / WNITER; // 64/1=64
+    constexpr uint WMITER = (WM * WN) / (WARPSIZE * TM * TN * WNITER); // number of warp subtiles in M dimension
+    constexpr uint WSUBM = WM / WMITER; // 64/4=16
+    constexpr uint WSUBN = WN / WNITER; // 64/4=16
 
-    // Placement of the thread in the warp subtile
+    // Placement of the thread in the warp subtile. Each thread gets a 2D index from (0:3, 0:15).
     const uint threadIdxInWarp = threadIdx.x % WARPSIZE;         // [0, 63]
-    const uint threadColInWarp = threadIdxInWarp % (WSUBN / TN); // i%(64/8)
-    const uint threadRowInWarp = threadIdxInWarp / (WSUBN / TN); // i/(64/8)
+    const uint threadColInWarp = threadIdxInWarp % (WSUBN / TN); // i%(16/4)
+    const uint threadRowInWarp = threadIdxInWarp / (WSUBN / TN); // i/(16/4)
 
     // calculating the indices that this thread will load into SMEM
     // we'll load 128bit / 32bit = 4 elements per thread at each step

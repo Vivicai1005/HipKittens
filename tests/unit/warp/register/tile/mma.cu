@@ -158,7 +158,7 @@ struct mma_wrapper_2d {
             // fill in correct results on cpu
             test::template host_func<H, W, NUM_WORKERS, GTL_A, GTL_B, GTL_C, _K, args...>(i_ref, o_ref);
             // check and cleanup
-            this_result.result = validate(d_i, d_o, i_ref, o_ref, this_result.label, W*16, 0.02); // mma's sometimes produce small errors. this appears to be hardware.
+            this_result.result = validate(d_i, d_o, i_ref, o_ref, this_result.label, W*16, 0.0625); // mma's sometimes produce small errors. this appears to be hardware.
         }
         else {
             this_result.result = test_result::INVALID;

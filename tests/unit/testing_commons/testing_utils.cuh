@@ -130,6 +130,10 @@ void initialize(T **d_i, T **d_o, std::vector<float> &i_ref, std::vector<float> 
             i_t[idx] = __float2half(f);
             i_ref[idx] = __half2float(i_t[idx]);
         }
+        else if constexpr (std::is_same_v<T, fp8e4m3>) {
+            i_t[idx] = __hip_fp8_e4m3_fnuz(f);
+            i_ref[idx] = float(i_t[idx]);
+        }
         else {
             assert(false && "Unsupported data type");
         }
@@ -168,15 +172,20 @@ test_result validate(T *d_i, T *d_o, const std::vector<float> &i_ref, std::vecto
             o[idx] = o_t[idx];
             o_ref[idx] = o_ref[idx];
         }
+        else if constexpr (std::is_same_v<T, fp8e4m3>) {
+            o[idx] = float(o_t[idx]);
+            o_ref[idx] = float(__hip_fp8_e4m3_fnuz(o_ref[idx]));
+        }
         else {
             assert(false && "Unsupported data type");
         }
     }
     // check
-    std::cout << "test `" << test_name << "`";
+    std::cout << "test `" << test_name << "` ";// << " has output size " << output_size;
     bool good = true;
     for(int i = 0; i < output_size; i++) {
         if(abs(o_ref[i] - o[i]) > eps) {
+            // std::cout << "failed at index " << i << " o_ref[i] = " << o_ref[i] << " o[i] = " << o[i];
             good = false;
             break;
         }

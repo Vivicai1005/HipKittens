@@ -62,11 +62,14 @@ __device__ static inline void mfma323264(      float2 (&D)[8],
                                          const fp8e4m3_4 (&A)[8],
                                          const fp8e4m3_4 (&B)[8],
                                          const float2 (&C)[8]) {
-    (*(float4*)D).data = {__builtin_amdgcn_mfma_f32_32x32x64_fp8(
-        (*(fp8e4m3_4*)A).__x,
-        (*(fp8e4m3_4*)B).__x,
-        (*(float4*)C).data,
-        0, 0, 0
+    typedef __attribute__((__vector_size__(8 * sizeof(int)))) int intx8_t;
+    typedef __attribute__((__vector_size__(16 * sizeof(float)))) float floatx16_t;
+
+    *(floatx16_t*)D = {__builtin_amdgcn_mfma_scale_f32_32x32x64_f8f6f4(
+        *(intx8_t*)A,
+        *(intx8_t*)B,
+        *(floatx16_t*)C,
+        0, 0, 0, 0, 3, 0
     )};
 }
 #else

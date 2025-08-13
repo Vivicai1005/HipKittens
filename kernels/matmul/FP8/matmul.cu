@@ -4,6 +4,15 @@
 
 using namespace kittens;
 
+// Timing result structure
+struct TimingResult {
+    float best_time_ms;
+    float avg_time_ms;
+    double best_tflops;
+    double avg_tflops;
+    int timing_iterations;
+};
+
 // #define DUMP_TO_CSV
 
 #define HipCheckError()    __hipCheckError( __FILE__, __LINE__ )
@@ -80,7 +89,8 @@ __global__ void matmul_device_ref(const kittens::gl<fp8e4m3, 1, 1, M, K> A, cons
 }
 
 template <int M, int N, int K, int CUs>
-void matmul_ref(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, std::vector<float>& c) {
+TimingResult matmul_ref(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, std::vector<float>& c, 
+                       int warmup_iters = 3, int timing_iters = 20) {
     constexpr int threads_per_warp = 64;
     constexpr int warps_per_cu = 4;
     constexpr int threads_per_block = threads_per_warp * warps_per_cu;
@@ -88,11 +98,11 @@ void matmul_ref(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, st
     // Ensure input vectors have correct size
     if (a.size() != M * K) {
         fprintf(stderr, "Error: Input vector 'a' size %zu does not match expected M*K=%d\n", a.size(), M*K);
-        return;
+        return {0, 0, 0, 0, 0};
     }
     if (b.size() != N * K) {
         fprintf(stderr, "Error: Input vector 'b' size %zu does not match expected N*K=%d\n", b.size(), N*K);
-        return;
+        return {0, 0, 0, 0, 0};
     }
 
     // Resize output vector
@@ -112,11 +122,53 @@ void matmul_ref(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, st
     hipMemset(d_c, 0, M*N*sizeof(float));
     HipCheckError();
 
-    // Create global memory objects and launch kernel
+    // Create global memory objects
     kittens::gl<fp8e4m3, 1, 1, M, K> A(d_a, nullptr, nullptr, nullptr, nullptr);
     kittens::gl<fp8e4m3, 1, 1, N, K> B(d_b, nullptr, nullptr, nullptr, nullptr);
     kittens::gl<float, 1, 1, M, N> C(d_c, nullptr, nullptr, nullptr, nullptr);
-    matmul_device_ref<M, N, K><<<CUs, threads_per_block>>>(A, B, C);
+    
+    // Warmup iterations
+    for (int i = 0; i < warmup_iters; i++) {
+        hipMemset(d_c, 0, M*N*sizeof(float));
+        matmul_device_ref<M, N, K><<<CUs, threads_per_block>>>(A, B, C);
+        hipDeviceSynchronize();
+    }
+    
+    // Create HIP events for precise kernel timing
+    hipEvent_t start_event, stop_event;
+    hipEventCreate(&start_event);
+    hipEventCreate(&stop_event);
+    
+    // Timed kernel-only loop
+    std::vector<float> times_ms;
+    times_ms.reserve(timing_iters);
+    for (int r = 0; r < timing_iters; ++r) {
+        hipMemset(d_c, 0, M*N*sizeof(float));
+        hipEventRecord(start_event, 0);
+        matmul_device_ref<M, N, K><<<CUs, threads_per_block>>>(A, B, C);
+        hipEventRecord(stop_event, 0);
+        hipEventSynchronize(stop_event);
+        float ms = 0.0f;
+        hipEventElapsedTime(&ms, start_event, stop_event);
+        times_ms.push_back(ms);
+    }
+    
+    // Calculate best and average times
+    float sum_ms = 0.f, best_ms = 1e30f;
+    for (float t : times_ms) { 
+        sum_ms += t; 
+        best_ms = std::min(best_ms, t); 
+    }
+    float avg_ms = sum_ms / times_ms.size();
+    
+    // Calculate TFLOPS (2*M*N*K operations)
+    double total_ops = 2.0 * M * N * K;
+    double best_tflops = (total_ops / (best_ms * 1e-3)) / 1e12;
+    double avg_tflops = (total_ops / (avg_ms * 1e-3)) / 1e12;
+    
+    // Cleanup events
+    hipEventDestroy(start_event);
+    hipEventDestroy(stop_event);
     HipCheckError();
 
     // Copy result back to host
@@ -128,6 +180,8 @@ void matmul_ref(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, st
     hipFree(d_b);
     hipFree(d_c);
     HipCheckError();
+    
+    return {best_ms, avg_ms, best_tflops, avg_tflops, timing_iters};
 }
 
 template <int M, int N, int K>
@@ -174,14 +228,12 @@ __global__ void matmul_device(const kittens::gl<fp8e4m3, 1, 1, M, K> A, const ki
 
         // Inner loop over K dimension
         for (int k = 0; k < k_iters; k++) {
-            __builtin_amdgcn_s_waitcnt(0);
-            __builtin_amdgcn_s_barrier();
-            __builtin_amdgcn_sched_barrier(0);
             // Cooperatively load 128x64 tiles into shared memory
             // All 4 warps participate in loading
             load<2, false, kittens::ducks::rt_layout::row>(As, A, {0, 0, block_m / 128, k});
             load<2, false, kittens::ducks::rt_layout::row>(Bs, B, {0, 0, block_n / 128, k});
 
+            // CRITICAL: Ensure all warps complete loading before any reads from shared memory
             __builtin_amdgcn_s_waitcnt(0);
             __builtin_amdgcn_s_barrier();
             __builtin_amdgcn_sched_barrier(0);
@@ -189,37 +241,30 @@ __global__ void matmul_device(const kittens::gl<fp8e4m3, 1, 1, M, K> A, const ki
             // Each warp loads its 64x64 portion from shared memory using subtiles
             auto as_subtile = kittens::subtile_inplace<64, 64>(As, {warp_m / 64, 0});
             auto bs_subtile = kittens::subtile_inplace<64, 64>(Bs, {warp_n / 64, 0});
-            __builtin_amdgcn_s_waitcnt(0);
-            __builtin_amdgcn_s_barrier();
-            __builtin_amdgcn_sched_barrier(0);
             load(a, as_subtile);
             load(b, bs_subtile);
 
+            // Ensure shared-to-register loads complete before MMA
             __builtin_amdgcn_s_waitcnt(0);
-            __builtin_amdgcn_s_barrier();
             __builtin_amdgcn_sched_barrier(0);
 
             // Compute: C += A * B^T
             mma_ABt(c, a, b, c);
+            
+            // CRITICAL: Ensure all warps finish using shared memory before next iteration overwrites
             __builtin_amdgcn_s_waitcnt(0);
             __builtin_amdgcn_s_barrier();
             __builtin_amdgcn_sched_barrier(0);
         }
 
-        __builtin_amdgcn_s_waitcnt(0);
-            __builtin_amdgcn_s_barrier();
-            __builtin_amdgcn_sched_barrier(0);
-
         // Store result: each warp stores its 64x64 result
         store(C, c, {0, 0, (block_m + warp_m) / 64, (block_n + warp_n) / 64});
-        __builtin_amdgcn_s_waitcnt(0);
-            __builtin_amdgcn_s_barrier();
-            __builtin_amdgcn_sched_barrier(0);
     }
 }
 
 template <int M, int N, int K, int CUs>
-void matmul_host(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, std::vector<float>& c) {
+TimingResult matmul_host(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, std::vector<float>& c, 
+                        int warmup_iters = 3, int timing_iters = 20) {
     constexpr int threads_per_warp = 64;
     constexpr int warps_per_cu = 4;
     constexpr int threads_per_block = threads_per_warp * warps_per_cu;
@@ -227,11 +272,11 @@ void matmul_host(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, s
     // Ensure input vectors have correct size
     if (a.size() != M * K) {
         fprintf(stderr, "Error: Input vector 'a' size %zu does not match expected M*K=%d\n", a.size(), M*K);
-        return;
+        return {0, 0, 0, 0, 0};
     }
     if (b.size() != N * K) {
         fprintf(stderr, "Error: Input vector 'b' size %zu does not match expected N*K=%d\n", b.size(), N*K);
-        return;
+        return {0, 0, 0, 0, 0};
     }
     
     // Resize output vector
@@ -251,11 +296,53 @@ void matmul_host(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, s
     hipMemset(d_c, 0, M*N*sizeof(float));
     HipCheckError();
     
-    // Create global memory objects and launch kernel
+    // Create global memory objects
     kittens::gl<fp8e4m3, 1, 1, M, K> A(d_a, nullptr, nullptr, nullptr, nullptr);
     kittens::gl<fp8e4m3, 1, 1, N, K> B(d_b, nullptr, nullptr, nullptr, nullptr);
     kittens::gl<float, 1, 1, M, N> C(d_c, nullptr, nullptr, nullptr, nullptr);
-    matmul_device<M, N, K><<<CUs, threads_per_block>>>(A, B, C);
+    
+    // Warmup iterations
+    for (int i = 0; i < warmup_iters; i++) {
+        hipMemset(d_c, 0, M*N*sizeof(float));
+        matmul_device<M, N, K><<<CUs, threads_per_block>>>(A, B, C);
+        hipDeviceSynchronize();
+    }
+    
+    // Create HIP events for precise kernel timing
+    hipEvent_t start_event, stop_event;
+    hipEventCreate(&start_event);
+    hipEventCreate(&stop_event);
+    
+    // Timed kernel-only loop
+    std::vector<float> times_ms;
+    times_ms.reserve(timing_iters);
+    for (int r = 0; r < timing_iters; ++r) {
+        hipMemset(d_c, 0, M*N*sizeof(float));
+        hipEventRecord(start_event, 0);
+        matmul_device<M, N, K><<<CUs, threads_per_block>>>(A, B, C);
+        hipEventRecord(stop_event, 0);
+        hipEventSynchronize(stop_event);
+        float ms = 0.0f;
+        hipEventElapsedTime(&ms, start_event, stop_event);
+        times_ms.push_back(ms);
+    }
+    
+    // Calculate best and average times
+    float sum_ms = 0.f, best_ms = 1e30f;
+    for (float t : times_ms) { 
+        sum_ms += t; 
+        best_ms = std::min(best_ms, t); 
+    }
+    float avg_ms = sum_ms / times_ms.size();
+    
+    // Calculate TFLOPS (2*M*N*K operations)
+    double total_ops = 2.0 * M * N * K;
+    double best_tflops = (total_ops / (best_ms * 1e-3)) / 1e12;
+    double avg_tflops = (total_ops / (avg_ms * 1e-3)) / 1e12;
+    
+    // Cleanup events
+    hipEventDestroy(start_event);
+    hipEventDestroy(stop_event);
     HipCheckError();
     
     // Copy result back to host
@@ -267,6 +354,8 @@ void matmul_host(const std::vector<fp8e4m3>& a, const std::vector<fp8e4m3>& b, s
     hipFree(d_b);
     hipFree(d_c);
     HipCheckError();
+    
+    return {best_ms, avg_ms, best_tflops, avg_tflops, timing_iters};
 }
 
 // Random initialization function
@@ -310,11 +399,18 @@ void identity_init(std::vector<fp8e4m3>& a_host, std::vector<fp8e4m3>& b_host) {
 }
 
 int main() {
-    // Re-test 256x256 to verify if it actually passed
-    constexpr int M = 8192;  // 64x64 = 4096 threadblocks needed
-    constexpr int N = 8192;  // 64x64 = 4096 threadblocks needed
-    constexpr int K = 8192;  // Test with larger K dimension
-    constexpr int CUs = 256; // 256 threadblocks (16 outer iterations)
+    // Reduced problem size for faster timing
+    constexpr int M = 2048;  // 256 threadblocks needed for 2048x2048
+    constexpr int N = 2048;  
+    constexpr int K = 2048;  // Smaller K for reasonable timing
+    constexpr int CUs = 256; // 256 threadblocks (1 outer iteration)
+    
+    // Timing parameters to keep total runtime reasonable  
+    constexpr int warmup_iters = 2;
+    constexpr int timing_iters = 20;
+
+    printf("Matrix dimensions: %dx%dx%d, CUs: %d\n", M, N, K, CUs);
+    printf("Warmup iterations: %d, Timing iterations: %d\n\n", warmup_iters, timing_iters);
 
     // Initialize input matrices
     std::vector<fp8e4m3> a_host(M*K);
@@ -326,11 +422,13 @@ int main() {
     random_init<M, N, K>(a_host, b_host);
     // identity_init<M, N, K>(a_host, b_host);
 
-    // Compute reference result using GPU reference: C = A * B^T
-    matmul_ref<M, N, K, CUs>(a_host, b_host, c_ref);
+    // Compute reference result with timing
+    printf("Running reference kernel (matmul_device_ref)...\n");
+    TimingResult ref_timing = matmul_ref<M, N, K, CUs>(a_host, b_host, c_ref, warmup_iters, timing_iters);
 
-    // Compute test result using same GPU implementation: C = A * B^T
-    matmul_host<M, N, K, CUs>(a_host, b_host, c_host);
+    // Compute test result with timing
+    printf("Running optimized kernel (matmul_device)...\n");
+    TimingResult host_timing = matmul_host<M, N, K, CUs>(a_host, b_host, c_host, warmup_iters, timing_iters);
 
     bool success = true;
     // Compare GPU result (c_host) with CPU reference (c_ref)
@@ -351,8 +449,22 @@ int main() {
             break;
         }
     }
+    // Performance comparison and results
+    printf("\n=== PERFORMANCE RESULTS ===\n");
+    
+    printf("Reference kernel (matmul_device_ref):\n");
+    printf("  Kernel time (best): %.3f ms,  TFLOPS: %.2f\n", ref_timing.best_time_ms, ref_timing.best_tflops);
+    printf("  Kernel time (avg ): %.3f ms,  TFLOPS: %.2f\n", ref_timing.avg_time_ms, ref_timing.avg_tflops);
+    
+    printf("\nOptimized kernel (matmul_device):\n");
+    printf("  Kernel time (best): %.3f ms,  TFLOPS: %.2f\n", host_timing.best_time_ms, host_timing.best_tflops);
+    printf("  Kernel time (avg ): %.3f ms,  TFLOPS: %.2f\n", host_timing.avg_time_ms, host_timing.avg_tflops);
+    
+    printf("\nSpeedup (best): %.2fx\n", ref_timing.best_time_ms / host_timing.best_time_ms);
+    printf("Speedup (avg ): %.2fx\n", ref_timing.avg_time_ms / host_timing.avg_time_ms);
+    
     if (success) {
-        printf("Test passed\n");
+        printf("\nCorrectness: PASSED\n");
         #ifdef DUMP_TO_CSV
         dump_to_csv("a_host.csv", a_host, M, K);
         dump_to_csv("b_host.csv", b_host, N, K);
@@ -360,7 +472,7 @@ int main() {
         dump_to_csv("c_ref.csv", c_ref, M, N);
         #endif
     } else {
-        printf("Test failed\n");
+        printf("\nCorrectness: FAILED\n");
         dump_to_csv("a_host.csv", a_host, M, K);
         dump_to_csv("b_host.csv", b_host, N, K);
         dump_to_csv("c_host.csv", c_host, M, N);

@@ -276,11 +276,10 @@ __device__ inline void load_global_to_shared_direct_with_swizzled_offsets_fp6(
      auto* lds_bytes = reinterpret_cast<const uint8_t*>(&src.data[0]);
 
      const int row_offset = laneid % 32;
-     const int col_offset = 16 * (laneid / 32);
+     const int col_offset = 32 * (laneid / 32);
      const int byte_offset = (row_offset * kittens::TILE_COL_DIM<U> + col_offset) * 6 / 8;
      const uint32_t addr = reinterpret_cast<uintptr_t>(lds_bytes + byte_offset);
 
-     const int half_tile_stride = 32 * 6 / 8;
      const int tile_stride = (kittens::TILE_ROW_DIM<U> * kittens::TILE_COL_DIM<U> * 6 / 8);
      const int row_stride = tile_stride * src.underlying_width;
  
@@ -290,16 +289,16 @@ __device__ inline void load_global_to_shared_direct_with_swizzled_offsets_fp6(
         #pragma unroll
         for(int j = 0; j < dst.width; j++) {
 
-            #pragma unroll
-            for (int k = 0; k < 2; k++) {
-                asm volatile(
-                    "ds_read_b96 %0, %1 offset:%2\n"
-                    : "=v"(*reinterpret_cast<__uint96_t*>((reinterpret_cast<uint8_t*>(&dst.tiles[i][j].data[0]) + k * 12)))
-                    : "v"(addr),
-                    "i"(i * row_stride + j * tile_stride + k * half_tile_stride)
-                    : "memory"
-                );
-            }
+            asm volatile(
+                "ds_read_b128 %0, %2 offset:%3\n"
+                "ds_read_b64 %1, %2 offset:%4"
+                : "=v"(*reinterpret_cast<__uint128_t*>(&dst.tiles[i][j].data[0])),
+                  "=v"(*reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(&dst.tiles[i][j].data[0]) + 16))
+                : "v"(addr),
+                "i"(i * row_stride + j * tile_stride),
+                "i"(i * row_stride + j * tile_stride + 16)
+                : "memory"
+            );
         }
      }
  }
@@ -314,7 +313,7 @@ __device__ inline static void store_fp6(const GL &dst, const RT &src, const COOR
     const int row_stride = dst.template stride<axis>();
     int laneid = kittens::laneid() % kittens::WARP_THREADS;
 
-    int row_offset = laneid%32, col_offset = 16*(laneid/32);
+    int row_offset = laneid%32, col_offset = 32*(laneid/32);
 
     i32x4 srsrc = make_srsrc(dst_ptr, row_stride * RT::rows * 6 / 8);
 
@@ -327,7 +326,7 @@ __device__ inline static void store_fp6(const GL &dst, const RT &src, const COOR
 
             #pragma unroll
             for (int k = 0; k < 2; k++) {
-                int col = src.tile_size_col*j + col_offset + k * 32;
+                int col = src.tile_size_col*j + col_offset + k * 16;
                 
                 const __uint96_t val_b96 = *reinterpret_cast<const __uint96_t*>((reinterpret_cast<const uint8_t*>(&src.tiles[i][j].data[0]) + k * 12));
                 // const __uint96_t val_b96 = {0x11111111, 0x11111111, 0x11111111};

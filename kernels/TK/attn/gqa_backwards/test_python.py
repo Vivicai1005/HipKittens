@@ -18,6 +18,35 @@ torch.set_printoptions(
     threshold=float("inf")  
 )
 
+# Parameters
+causal = False
+b = 1
+h = 1
+n = 32
+d = 128
+dtype = torch.bfloat16
+
+def generate_tensor(shape, mean, std, dtype, device):
+    tensor = torch.randn(shape, dtype=dtype, device=device)
+    magnitude = torch.norm(tensor, dim=-1, keepdim=True)
+    scaled_tensor = tensor * (torch.randn(magnitude.shape, dtype=dtype, device=device) * std + mean) / magnitude
+    return scaled_tensor.contiguous()
+
+def generate_inputs():
+    mean = 5 #1e-1
+    std = 0.1  # REDUCED from 10 to 0.1 for numerical stability
+    
+    # Generate in BHND format (batch, heads, seq, dim) for reference
+    Q = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda')
+    K = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda')
+    V = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda')
+    dO = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda') * 50
+
+    Q.requires_grad_(True)
+    K.requires_grad_(True)
+    V.requires_grad_(True)
+    return Q, K, V, dO
+
 def reference_backwards(Q, K, V, dO, causal):
     """Reference implementation using BHND layout (batch, heads, seq, dim)"""
     # Convert to float64 and create new leaf tensors with requires_grad
@@ -63,35 +92,6 @@ def simple_flash_backward(Q, K, V, dO, m, l):
 
     return dQ, dK, dV
 
-# Parameters
-causal = False
-b = 16
-h = 16
-n = 2048
-d = 128
-dtype = torch.bfloat16
-
-def generate_tensor(shape, mean, std, dtype, device):
-    tensor = torch.randn(shape, dtype=dtype, device=device)
-    magnitude = torch.norm(tensor, dim=-1, keepdim=True)
-    scaled_tensor = tensor * (torch.randn(magnitude.shape, dtype=dtype, device=device) * std + mean) / magnitude
-    return scaled_tensor.contiguous()
-
-def generate_inputs():
-    mean = 5 #1e-1
-    std = 0.1  # REDUCED from 10 to 0.1 for numerical stability
-    
-    # Generate in BHND format (batch, heads, seq, dim) for reference
-    Q = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda')
-    K = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda')
-    V = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda')
-    dO = generate_tensor((b, h, n, d), mean, std, torch.bfloat16, 'cuda') * 50
-
-    Q.requires_grad_(True)
-    K.requires_grad_(True)
-    V.requires_grad_(True)
-    return Q, K, V, dO
-
 # Generate base inputs in BHND format
 Q_bhnd, K_bhnd, V_bhnd, dO_bhnd = generate_inputs()
 
@@ -114,16 +114,10 @@ V_tiled = V_bhnd.clone().contiguous().detach().requires_grad_(True)
 dO_tiled = dO_bhnd.clone().contiguous()  
 
 # Create leaf tensors for TK (BNHD format)
-Q_tk = Q_bhnd.clone().contiguous().detach().requires_grad_(True)  
-K_tk = K_bhnd.clone().contiguous().detach().requires_grad_(True)  
-V_tk = V_bhnd.clone().contiguous().detach().requires_grad_(True)  
-dO_tk = dO_bhnd.clone().contiguous() 
-
-
-print(f"Tensor shapes:")
-print(f"PyTorch (BHND): Q={Q_pytorch.shape}, K={K_pytorch.shape}, V={V_pytorch.shape}")
-print(f"AITER (BNHD):   Q={Q_aiter.shape}, K={K_aiter.shape}, V={V_aiter.shape}")
-print(f"TK (BNHD):      Q={Q_tk.shape}, K={K_tk.shape}, V={V_tk.shape}")
+Q_tk = Q_bhnd.bfloat16().clone().contiguous().detach().requires_grad_(True)  
+K_tk = K_bhnd.bfloat16().clone().contiguous().detach().requires_grad_(True)  
+V_tk = V_bhnd.bfloat16().clone().contiguous().detach().requires_grad_(True)  
+dO_tk = dO_bhnd.bfloat16().clone().contiguous() 
 
 # AITER forward and backward
 if use_aiter:
@@ -140,12 +134,10 @@ if use_aiter:
 
 # PyTorch Reference
 print("Running PyTorch reference...")
-print(f"Q_pytorch[0, 0, 0, :16]={Q_pytorch[0, 0, 0, :16]}")
 out_pytorch, q_grad_pytorch, k_grad_pytorch, v_grad_pytorch = reference_backwards(Q_pytorch, K_pytorch, V_pytorch, dO_pytorch, causal)
 
-# Tiled
+# Tiled Reference
 print("Running Tiled forward to get m, l...")
-print(f"Q_tk[0, 0, 0, :16]={Q_tk[0, 0, 0, :16]}")
 QK = torch.matmul(Q_tiled.float(), K_tiled.transpose(-2, -1).float()) / math.sqrt(d)
 m_tiled = QK.max(dim=-1, keepdim=True)[0] 
 exp_scores = torch.exp(QK - m_tiled)  
@@ -160,83 +152,150 @@ out_tiled_bhnd = O_tiled
 q_grad_tiled_bhnd = dQ_tiled
 k_grad_tiled_bhnd = dK_tiled
 v_grad_tiled_bhnd = dV_tiled
-print(f"m_tiled.shape={m_tiled.shape}")
-print(f"l_tiled.shape={l_tiled.shape}")
+
+
+def test_dq(Q, K, V, dO, m, l):
+    """Simple version that should match PyTorch exactly"""
+    D = Q.shape[-1]
+    scale = 1.0 / math.sqrt(D)
+    # Recompute scores and probabilities with saved m, l
+    S = torch.matmul(Q, K.transpose(-2, -1)) * scale
+    P = torch.exp(S - torch.ones_like(m.unsqueeze(-1))) / torch.ones_like(l.unsqueeze(-1))
+    O = torch.matmul(P, V)
+    # # softmax backward
+    Delta = torch.ones_like((dO * O).sum(dim=-1, keepdim=True))                 #
+    dS = P * (torch.matmul(dO, V.transpose(-2, -1)) - Delta)   # (B, N, H, N)
+    # chain rule through S = (Q K^T) * scale
+    dQ = torch.matmul(dS, K) * scale
+    return dQ
+
 
 # TK
 print("Running TK dQ ...")
-dQ_tk = torch.zeros_like(q_grad_tiled_bhnd)
-O_tk = O_tiled.clone()
-dO_tk = dO_tiled.clone()
+dQ_tk = torch.zeros_like(q_grad_tiled_bhnd).bfloat16()
+O_tk = O_tiled.bfloat16().clone()
+dO_tk = dO_tiled.bfloat16().clone()
 tk_kernel.dispatch_micro(
     Q_tk,     # Qg
     K_tk,     # Kg
     V_tk,     # Vg
     O_tk,     # Og
     dO_tk,    # dOg
-    dQ_tk,   # dQg (output)
+    dQ_tk,    # dQg
     m_tiled.unsqueeze(-1),  # m_vec
-    l_tiled.unsqueeze(-1)   # l_vec
+    l_tiled.unsqueeze(-1)
 )
 
+
+def test_dv(Q, K, V, dO, m, l):
+    """Simple version that should match PyTorch exactly"""
+    D = Q.shape[-1]
+    scale = 1.0 / math.sqrt(D)
+    # Recompute scores and probabilities with saved m, l
+    S = torch.matmul(Q, K.transpose(-2, -1)) * scale
+    P = torch.exp(S - torch.ones_like(m.unsqueeze(-1))) / torch.ones_like(l.unsqueeze(-1))
+    O = torch.matmul(P, V)
+    # dV
+    dV = torch.matmul(P.transpose(-2, -1), dO)
+    return dV
+
+
+def test_dk(Q, K, V, dO, m, l):
+    """Simple version that should match PyTorch exactly"""
+    D = Q.shape[-1]
+    scale = 1.0 / math.sqrt(D)
+    # Recompute scores and probabilities with saved m, l
+    S = torch.matmul(Q, K.transpose(-2, -1)) * scale
+    P = torch.exp(S - torch.ones_like(m.unsqueeze(-1))) / torch.ones_like(l.unsqueeze(-1))
+    O = torch.matmul(P, V)
+    # softmax backward
+    Delta = (dO * O).sum(dim=-1, keepdim=True)                 # (B, N, H, 1)
+    dS = P * (torch.matmul(dO, V.transpose(-2, -1)) - torch.ones_like(Delta))   # (B, N, H, N)
+    dK = torch.matmul(dS.transpose(-2, -1), Q) * scale
+    return dK
+
+
+DV = test_dk(Q_tiled.float(), K_tiled.float(), V_tiled.float(), dO_tiled.float(), m_tiled, l_tiled)
+
 print("Running TK dK, dV ...")
-dK_tk = torch.zeros_like(k_grad_tiled_bhnd)
-dV_tk = torch.zeros_like(v_grad_tiled_bhnd)
+dK_tk = torch.zeros_like(k_grad_tiled_bhnd).bfloat16()
+dV_tk = torch.zeros_like(v_grad_tiled_bhnd).bfloat16()
+test = torch.zeros_like(DV).bfloat16()
 tk_kernel.dispatch_bwd_dkv(
     Q_tk,     # Qg
     K_tk,     # Kg
     V_tk,     # Vg
     O_tk,     # Og
     dO_tk,    # dOg
-    dK_tk,   # dKg (output)
-    dV_tk,   # dVg (output)
+    dK_tk,    # dKg (output)
+    dV_tk,    # dVg (output)
     m_tiled.unsqueeze(-1),  # m_vec
-    l_tiled.unsqueeze(-1)   # l_vec
+    l_tiled.unsqueeze(-1),  # l_vec
+    test
 )
 
-# Compare
-if use_aiter:
-    out_diff = (out_aiter_bhnd - out_pytorch).abs()
-    q_grad_diff = (q_grad_aiter_bhnd - q_grad_pytorch).abs()
-    k_grad_diff = (k_grad_aiter_bhnd - k_grad_pytorch).abs()
-    v_grad_diff = (v_grad_aiter_bhnd - v_grad_pytorch).abs()
-
-# Compare TK with PyTorch
-out_tiled_diff = (out_tiled_bhnd - out_pytorch).abs()
-q_grad_tiled_diff = (q_grad_tiled_bhnd - q_grad_pytorch).abs()
-k_grad_tiled_diff = (k_grad_tiled_bhnd - k_grad_pytorch).abs()
-v_grad_tiled_diff = (v_grad_tiled_bhnd - v_grad_pytorch).abs()
-
-if use_aiter:
-    print(f"\nOutput comparison:")
-    print(f"Output max error: {out_diff.max().item():.6f}")
-    print(f"Output mean error: {out_diff.mean().item():.6f}")
-
-    print(f"\nGradient comparison:")
-    print(f"Q grad max error: {q_grad_diff.max().item():.6f}")
-    print(f"K grad max error: {k_grad_diff.max().item():.6f}")
-    print(f"V grad max error: {v_grad_diff.max().item():.6f}")
-
-print(f"\nTiled vs PyTorch comparison:")
-print(f"Output max error: {out_tiled_diff.max().item():.6f}")
-print(f"Q grad max error: {q_grad_tiled_diff.max().item():.6f}")
-print(f"K grad max error: {k_grad_tiled_diff.max().item():.6f}")
-print(f"V grad max error: {v_grad_tiled_diff.max().item():.6f}")
-
-# TK vs PyTorch
-print(f"\nTK vs PyTorch comparison:")
-q_grad_tk_diff = (dQ_tk - q_grad_pytorch).abs()
-k_grad_tk_diff = (dK_tk - k_grad_pytorch).abs()
-v_grad_tk_diff = (dV_tk - v_grad_pytorch).abs()
-print(f"Q grad max error: {q_grad_tk_diff.max().item():.6f}")
-print(f"K grad max error: {k_grad_tk_diff.max().item():.6f}")
-print(f"V grad max error: {v_grad_tk_diff.max().item():.6f}")
+diff = (DV - test).abs()
+max_diff = diff.max()
+if test.shape[-1] == 1:
+    print(f"dV_tk[0, 0, :16]={test[0, 0, :16]}")
+    print(f"DV[0, 0, :16]={DV[0, 0, :16]}")
+else:
+    print(f"dV_tk[0, 0, :16]={test[0, 0, 0, :16]}")
+    print(f"DV[0, 0, :16]={DV[0, 0, 0, :16]}")
+print(f"Max diff: {max_diff.item():.6f}")
+# breakpoint()
+exit()
 
 
-print(dQ_tk[0, 0, 0, :16])
-print(q_grad_pytorch[0, 0, 0, :16], q_grad_pytorch.max())
-if use_aiter:
-    print(q_grad_aiter_bnhd[0, 0, 0, :16], q_grad_aiter_bnhd.max())
+
+
+
+
+
+
+# # Compare
+# if use_aiter:
+#     out_diff = (out_aiter_bhnd - out_pytorch).abs()
+#     q_grad_diff = (q_grad_aiter_bhnd - q_grad_pytorch).abs()
+#     k_grad_diff = (k_grad_aiter_bhnd - k_grad_pytorch).abs()
+#     v_grad_diff = (v_grad_aiter_bhnd - v_grad_pytorch).abs()
+
+# # Compare TK with PyTorch
+# out_tiled_diff = (out_tiled_bhnd - out_pytorch).abs()
+# q_grad_tiled_diff = (q_grad_tiled_bhnd - q_grad_pytorch).abs()
+# k_grad_tiled_diff = (k_grad_tiled_bhnd - k_grad_pytorch).abs()
+# v_grad_tiled_diff = (v_grad_tiled_bhnd - v_grad_pytorch).abs()
+
+# if use_aiter:
+#     print(f"\nOutput comparison:")
+#     print(f"Output max error: {out_diff.max().item():.6f}")
+#     print(f"Output mean error: {out_diff.mean().item():.6f}")
+
+#     print(f"\nGradient comparison:")
+#     print(f"Q grad max error: {q_grad_diff.max().item():.6f}")
+#     print(f"K grad max error: {k_grad_diff.max().item():.6f}")
+#     print(f"V grad max error: {v_grad_diff.max().item():.6f}")
+
+# print(f"\nTiled vs PyTorch comparison:")
+# print(f"Output max error: {out_tiled_diff.max().item():.6f}")
+# print(f"Q grad max error: {q_grad_tiled_diff.max().item():.6f}")
+# print(f"K grad max error: {k_grad_tiled_diff.max().item():.6f}")
+# print(f"V grad max error: {v_grad_tiled_diff.max().item():.6f}")
+
+# # TK vs PyTorch
+# print(f"\nTK vs PyTorch comparison:")
+# q_grad_tk_diff = (dQ_tk - q_grad_pytorch).abs()
+# k_grad_tk_diff = (dK_tk - k_grad_pytorch).abs()
+# v_grad_tk_diff = (dV_tk - v_grad_pytorch).abs()
+# print(f"Q grad max error: {q_grad_tk_diff.max().item():.6f}")
+# print(f"K grad max error: {k_grad_tk_diff.max().item():.6f}")
+# print(f"V grad max error: {v_grad_tk_diff.max().item():.6f}")
+
+
+# print(dQ_tk[0, 0, 0, :16])
+# print(q_grad_pytorch[0, 0, 0, :16], q_grad_pytorch.max())
+# if use_aiter:
+#     print(q_grad_aiter_bnhd[0, 0, 0, :16], q_grad_aiter_bnhd.max())
 
 
 

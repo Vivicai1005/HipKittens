@@ -36,7 +36,7 @@ void warp::memory::vec::global_to_register::tests(test_data &results) {
                          
     sweep_gmem_type_1d_warp<reg_vec_load_store, SIZE, kittens::ducks::rv_layout::naive>::run(results);
     sweep_gmem_type_1d_warp<reg_vec_load_store, SIZE, kittens::ducks::rv_layout::ortho>::run(results);
-    // sweep_gmem_type_1d_warp<reg_vec_load_store, SIZE, kittens::ducks::rv_layout::align>::run(results);
+    sweep_gmem_type_1d_warp<reg_vec_load_store, SIZE, kittens::ducks::rv_layout::align>::run(results);
 }
 
 

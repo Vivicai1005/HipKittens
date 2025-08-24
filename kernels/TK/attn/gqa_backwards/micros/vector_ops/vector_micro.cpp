@@ -23,7 +23,7 @@ __global__ __launch_bounds__(NUM_THREADS, 1)
 void micro_tk(const micro_globals g) {
 
     rt_fl<n, d, accum_col_l> tile_accum;
-    rt_fl<n, d, row_l>::col_vec vec;
+    rt_fl<n, d, accum_col_l>::row_vec vec;
     load(tile_accum, g.in, {0, 0, 0, 0});
     load(vec, g.in_vec, {0, 0, 0, 0});
     __builtin_amdgcn_s_waitcnt(0);

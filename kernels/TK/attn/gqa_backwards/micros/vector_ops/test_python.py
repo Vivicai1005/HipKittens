@@ -20,14 +20,12 @@ d = 32
 
 # pytorch
 x = torch.randn((b, h, n, d), dtype=torch.float32, device='cuda')
-vec = torch.randn((b, h, n, 1), dtype=torch.float32, device='cuda')
+vec = torch.randn((b, h, 1, d), dtype=torch.float32, device='cuda')
 y = x - vec
 
 # tk
 y_tk = torch.zeros_like(y)
-x_in = x.transpose(-1, -2).contiguous()
-tk_kernel.dispatch_micro(x_in, vec, y_tk)
-y_tk = y_tk.transpose(-1, -2)
+tk_kernel.dispatch_micro(x, vec, y_tk)
 
 # check
 diff = (y - y_tk).abs().max()

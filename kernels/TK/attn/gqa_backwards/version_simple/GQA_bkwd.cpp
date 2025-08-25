@@ -3,7 +3,7 @@
 
 constexpr int ATTN_B = 16; // batch size
 constexpr int ATTN_H = 16; // number of heads
-constexpr int ATTN_N = 32; // sequence length
+constexpr int ATTN_N = 1024; // sequence length
 constexpr int ATTN_D = 128; // dimension
 constexpr int BLOCK_SIZE = 32; // block size
 
@@ -16,39 +16,9 @@ template<int D, typename T=bf16, typename L=row_l> using qkvo_tile = rt<T, BLOCK
 template<int D, typename T=bf16, typename L=col_l> using qkvo_tile_transposed = rt<T, D, BLOCK_SIZE, L>;
 template<int D, typename T=float, typename L=row_l> using attn_tile = rt<T, BLOCK_SIZE, BLOCK_SIZE, L>;
 
-
-
-template<int D> struct attn_prep_globals { 
-    gl<bf16, -1, -1, -1, -1> Og, dOg; 
-    gl<bf16, -1, -1, -1, 1> delta;
-    dim3 grid() { return dim3(ATTN_B, ATTN_H, ATTN_N / BLOCK_SIZE); }
-    dim3 block() { return dim3(NUM_THREADS); }
-    size_t dynamic_shared_memory() { return MAX_SHARED_MEMORY-32000; }
-};
-
-template<int D> __launch_bounds__(NUM_THREADS, 1)
-__global__ void attend_prep_ker(const attn_prep_globals<D> g) {
-    
-    const int b = blockIdx.x;
-    const int h = blockIdx.y;
-    const int i = blockIdx.z;
-
-    qkvo_tile<D, bf16, row_l> dO, O;
-    load(dO, g.dOg, {b,h,i,0});
-    load(O,  g.Og,  {b,h,i,0});
-    
-    // Δ_i = row_sum(dO ⊙ O) 
-    mul(dO, dO, O);
-    attn_tile<D,bf16,row_l>::col_vec delta_vec;
-    row_sum(delta_vec, dO); 
-    store(g.delta, delta_vec, {b,h,i,0});
-}
-
-
-
 template<int D> struct attn_globals { 
     gl<bf16, -1, -1, -1, -1> Qg, Kg, Vg, Og, dOg, dQg;
-    gl<float, -1, -1, -1, 1> m_vec, l_vec, delta_vec;
+    gl<float, -1, -1, -1, 1> m_vec, l_vec;
     dim3 grid() { return dim3(ATTN_B, ATTN_H, ATTN_N / BLOCK_SIZE); }
     dim3 block() { return dim3(NUM_THREADS); }
     size_t dynamic_shared_memory() { return MAX_SHARED_MEMORY-32000; }
@@ -66,20 +36,25 @@ __global__ void attend_bwd_dq_ker(const attn_globals<D> g) {
     // tiles
     qkvo_tile<D, bf16, row_l> q_reg, k_reg, v_reg;
     qkvo_tile<D, bf16, col_l> k_reg_col;
+    qkvo_tile<D, bf16, row_l> dO_reg;
     qkvo_tile<D, float, accum_col_l> dQ_acc; 
     qkvo_tile<D, float, row_l> tmp_float;
-    qkvo_tile<D, bf16, row_l> dO_reg_bf16, O_reg_bf16;
+    qkvo_tile<D, float, row_l> dO_float, O_float;
     zero(dQ_acc);
 
     // load Q_i, dO_i, O_i, and stats (m,l)
     load(q_reg,  g.Qg,  {b,h,i,0});
-    load(dO_reg_bf16, g.dOg, {b,h,i,0});
-    load(O_reg_bf16,  g.Og,  {b,h,i,0});
+    load(dO_reg, g.dOg, {b,h,i,0});
+    load(O_float,  g.Og,  {b,h,i,0});
     typename attn_tile<D,float,col_l>::col_vec m_vec, l_vec;
     load(m_vec, g.m_vec, {b,h,i,0});
     load(l_vec, g.l_vec, {b,h,i,0});
-    typename attn_tile<D,float,accum_col_l>::col_vec delta_vec;
-    load(delta_vec, g.delta_vec, {b,h,i,0});
+    
+    // Δ_i = row_sum(dO ⊙ O) 
+    copy(dO_float, dO_reg);
+    mul(tmp_float, dO_float, O_float);
+    attn_tile<D,float,row_l>::col_vec delta_vec;
+    row_sum(delta_vec, tmp_float); 
 
     int num_blocks = ATTN_N/BLOCK_SIZE;
     for (int j = 0; j < num_blocks; ++j) {
@@ -103,8 +78,8 @@ __global__ void attend_bwd_dq_ker(const attn_globals<D> g) {
         // dS = P ⊙ (dO_i V_j^T - Delta)
         attn_tile<D,float,accum_col_l> dOVt; 
         zero(dOVt);
-        mma_ABt(dOVt, dO_reg_bf16, v_reg, dOVt);
-        sub_row(dOVt, dOVt, delta_vec);
+        mma_ABt(dOVt, dO_reg, v_reg, dOVt);
+        sub_col(dOVt, dOVt, delta_vec);
         mul(dOVt, dOVt, S);
 
         // dQ += dS K_j * scale
@@ -218,15 +193,6 @@ __global__ void attend_bwd_dkv_ker(const bwd_dkv_globals<D> g) {
 *******************************************/
 
 template<int D>
-void dispatch_prep(attn_prep_globals<D> g) {
-    unsigned long mem_size = g.dynamic_shared_memory();
-    hipFuncSetAttribute((void*)attend_prep_ker<D>, hipFuncAttributeMaxDynamicSharedMemorySize, mem_size);
-    attend_prep_ker<D><<<g.grid(), g.block(), mem_size>>>(g);
-    hipDeviceSynchronize();
-}
-
-
-template<int D>
 void dispatch_micro(attn_globals<D> g) {
     unsigned long mem_size = g.dynamic_shared_memory();
     hipFuncSetAttribute((void*)attend_bwd_dq_ker<D>, hipFuncAttributeMaxDynamicSharedMemorySize, mem_size);
@@ -245,15 +211,6 @@ void dispatch_bwd_dkv(bwd_dkv_globals<D> g){
 
 PYBIND11_MODULE(tk_kernel, m) {
     m.doc() = "tk_kernel python module";
-
-
-    py::bind_function<dispatch_prep<ATTN_D>>(m, "dispatch_prep", 
-        &attn_prep_globals<ATTN_D>::Og, 
-        &attn_prep_globals<ATTN_D>::dOg,
-        &attn_prep_globals<ATTN_D>::delta
-    );
-
-
     py::bind_function<dispatch_micro<ATTN_D>>(m, "dispatch_micro", 
         &attn_globals<ATTN_D>::Qg, 
         &attn_globals<ATTN_D>::Kg, 
@@ -262,8 +219,7 @@ PYBIND11_MODULE(tk_kernel, m) {
         &attn_globals<ATTN_D>::dOg, 
         &attn_globals<ATTN_D>::dQg,
         &attn_globals<ATTN_D>::m_vec, 
-        &attn_globals<ATTN_D>::l_vec,
-        &attn_globals<ATTN_D>::delta_vec
+        &attn_globals<ATTN_D>::l_vec
     );
 
     py::bind_function<dispatch_bwd_dkv<ATTN_D>>(m, "dispatch_bwd_dkv", 
@@ -278,4 +234,3 @@ PYBIND11_MODULE(tk_kernel, m) {
         &bwd_dkv_globals<ATTN_D>::l_vec
     );
 }
-

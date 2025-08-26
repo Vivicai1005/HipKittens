@@ -238,7 +238,8 @@ __device__ inline void load(ST& dst, const GL& src, const COORD& idx, const uint
     T* global_ptr = (T*)&src[unit_coord];
     i32x4 srsrc = make_srsrc(global_ptr, row_stride * ST::rows * sizeof(T));
 
-    const int warp_id = warpid();
+    const int num_warps = N_THREADS / kittens::WARP_THREADS;
+    const int warp_id = warpid() % num_warps;
     const T* lds_base = &dst.data[0] + (warp_id * elem_per_warp);
 
     #pragma unroll

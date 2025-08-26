@@ -56,7 +56,7 @@ void micro_tk(const micro_globals g) {
     __syncthreads();
 
     // store output
-    store(g.out, tile, {0, 0, 0, 0});
+    store(g.out, tile, {0, 0, i, 0});
     __builtin_amdgcn_s_waitcnt(0);
     __builtin_amdgcn_s_barrier();
     __syncthreads();

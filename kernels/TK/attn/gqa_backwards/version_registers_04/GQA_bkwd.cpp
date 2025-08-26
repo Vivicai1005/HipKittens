@@ -72,7 +72,6 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
 
     // Register tiles
     qkvo_tile<D, bf16, row_l> K_j, V_j;
-    qkvo_tile<D, bf16, col_l> K_j_col;
     qkvo_tile<D, float, accum_col_l> dK_j, dV_j;
 
     // 6. Load K_j and V_j from HBM to registers
@@ -89,7 +88,7 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         // 9. Load Q_i, O_i, dO_i, dQ_i, l_i, m_i, delta_i from HBM to registers
         qkvo_tile<D, bf16, row_l> Q_i;
         qkvo_tile<D, float, accum_col_l> dO_i;
-        attn_tile<D, float,accum_col_l>::col_vec l_i, m_i, delta_i;
+        attn_tile<D, float, accum_col_l>::col_vec l_i, m_i, delta_i;
         load(Q_i, g.Q, {b,h,i,0});
         load(dO_i, g.dOg, {b,h,i,0});
         load(l_i, g.l_vec, {b,h,0,i});
@@ -128,16 +127,17 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         // 15. dQ_i += dS_ij @ K_j (load from HBM and write back)
         qkvo_tile<D, float, accum_col_l> dQ_i;
         load(dQ_i, g.dQg, {b,h,i,0});
-        attn_tile<D,bf16,accum_col_l> dS_ij_bf16_acc_col;
+        attn_tile<D, bf16, accum_col_l> dS_ij_bf16_acc_col;
         copy(dS_ij_bf16_acc_col, dP_ij);
-        attn_tile<D,bf16,row_l> dS_ij_bf16_row;
+        attn_tile<D, bf16, row_l> dS_ij_bf16_row;
         swap_layout(dS_ij_bf16_row, dS_ij_bf16_acc_col);
-        qkvo_tile<D,bf16,col_l> K_j_col;
+        qkvo_tile<D, bf16, col_l> K_j_col;
         swap_layout(K_j_col, K_j);
         mma_AB(dQ_i, dS_ij_bf16_row, K_j_col, dQ_i);
         store(g.dQg, dQ_i, {b,h,i,0});
 
         // 16. dK_j += dS_ij^T @ Q_i
+        mul(dS_ij_bf16_acc_col, dS_ij_bf16_acc_col, scale_factor);
         attn_tile<D,bf16,col_l> dS_ij_bf16_col;
         swap_layout(dS_ij_bf16_col, dS_ij_bf16_acc_col);
         qkvo_tile<D, bf16, col_l> Q_i_col;

@@ -223,6 +223,13 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
     st_bf<BLOCK_SIZE_QO, D, ducks::st_matrix::mfma_16x16x32> (&dO_i_smem) = al.allocate<st_bf<BLOCK_SIZE_QO, D, ducks::st_matrix::mfma_16x16x32>>();
     // We parameterize this using mfma_32x32x16 because we want the base tile for it to be 32x16. Not that it uses that intrinsic.
     st_bf<BLOCK_SIZE_KV, BLOCK_SIZE_QO, ducks::st_matrix::mfma_32x32x16> (&attn_i_smem) = al.allocate<st_bf<BLOCK_SIZE_KV, BLOCK_SIZE_QO, ducks::st_matrix::mfma_32x32x16>>();
+
+    sv_fl<ATTN_N> (&L_smem) = al.allocate<sv_fl<ATTN_N>>();
+    sv_fl<ATTN_N> (&delta_smem) = al.allocate<sv_fl<ATTN_N>>();
+
+    load(L_smem, g.L_vec, {batch_idx, head_idx, 0, 0});
+    load(delta_smem, g.delta_vec, {batch_idx, head_idx, 0, 0});
+
     G::load(K_j_smem, g.K, {batch_idx, head_idx, seq_idx, 0});
     __builtin_amdgcn_s_waitcnt(0);
     __builtin_amdgcn_s_barrier();
@@ -269,12 +276,12 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         load(K_j, subtile_inplace<WARP_SIZE_KV, D>(K_j_smem, {warpid, 0}));
         load(Q_i, Q_i_smem);
         load(Q_i_col, Q_i_smem);
-        load(dO_i, dO_i_smem); // TODO: replace with SMEM load;
         load(dO_i_col, dO_i_smem);
+        load(dO_i, dO_i_smem);
         __builtin_amdgcn_s_waitcnt(0);
         __builtin_amdgcn_s_barrier();
         __builtin_amdgcn_sched_barrier(0);
-        load(L_i, g.L_vec, {batch_idx, head_idx, 0, i});
+        load(L_i, subvec_inplace<WARP_SIZE_QO>(L_smem, i));
         zero(P_ij);
         mma_ABt(P_ij, Q_i, K_j, P_ij);
         mul(P_ij, P_ij, scale_factor);
@@ -285,8 +292,7 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         copy(P_ij_bf16, P_ij);
 
         // 13. dP_ij = dO_i @ V_j^T
-
-        load(delta_i, g.delta_vec, {batch_idx, head_idx, 0, i});
+        load(delta_i, subvec_inplace<WARP_SIZE_QO>(delta_smem, i));
         zero(dP_ij);
         mma_ABt(dP_ij, dO_i, V_j, dP_ij);
         // 14. dS_ij = P_ij o (dP_ij - delta_i)
@@ -294,7 +300,7 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         mul(dP_ij, dP_ij, P_ij);
         mul(dP_ij, dP_ij, scale_factor);
         copy(dP_ij_bf16, dP_ij);
-        // store(g.dS_ij, dP_ij_bf16, {batch_idx,head_idx, i, j}); // TODO: replace with SMEM store
+
         swap_layout_and_transpose(dP_ij_bf16_accum_row, dP_ij_bf16);
         auto attn_i_smem_subtile = subtile_inplace<WARP_SIZE_KV, WARP_SIZE_QO>(attn_i_smem, {warpid, 0});
         store(attn_i_smem_subtile, dP_ij_bf16_accum_row);

@@ -335,8 +335,6 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         load(K_j, subtile_inplace<WARP_SIZE_KV, D>(K_j_smem, {warpid, 0}));
         load(Q_i, Q_i_smem);
         load(dO_i, dO_i_smem);
-        load(Q_i_col, Q_i_smem);
-        load(dO_i_col, dO_i_smem);
         __builtin_amdgcn_s_waitcnt(0);
         __builtin_amdgcn_s_barrier();
         __builtin_amdgcn_sched_barrier(0);
@@ -363,10 +361,11 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
         swap_layout_and_transpose(dP_ij_bf16_accum_row, dP_ij_bf16);
         auto attn_i_smem_subtile = subtile_inplace<WARP_SIZE_KV, WARP_SIZE_QO>(attn_i_smem, {warpid, 0});
         store(attn_i_smem_subtile, dP_ij_bf16_accum_row);
+        load(Q_i_col, Q_i_smem);
+        load(dO_i_col, dO_i_smem);
         __builtin_amdgcn_s_waitcnt(0);
         __builtin_amdgcn_s_barrier();
         __builtin_amdgcn_sched_barrier(0);
-
         // 12. dV_j += P_ij^T @ dO_i
         // load(dO_i_col, g.dOg, {batch_idx, head_idx, i, 0});
         P_ij_bf16_col = swap_layout_inplace<col_l, mfma_32x32x16>(P_ij_bf16);

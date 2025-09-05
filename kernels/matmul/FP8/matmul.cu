@@ -394,12 +394,12 @@ __device__ inline void load_gl_to_st(ST& dst, const GL& src, const COORD& idx)
 
     coord<> unit_coord = idx.template unit_coord<axis, 3>();
     T* global_ptr = (T*)&src[unit_coord];
-    i32x4 srsrc_v = make_srsrc(global_ptr, row_stride * ST::rows * sizeof(T));
-    const int32_t s0 = __builtin_amdgcn_readfirstlane(srsrc_v.x);
-    const int32_t s1 = __builtin_amdgcn_readfirstlane(srsrc_v.y);
-    const int32_t s2 = __builtin_amdgcn_readfirstlane(srsrc_v.z);
-    const int32_t s3 = __builtin_amdgcn_readfirstlane(srsrc_v.w);
-    i32x4 srsrc = { s0, s1, s2, s3 };
+    i32x4 srsrc = make_srsrc(global_ptr, row_stride * ST::rows * sizeof(T));
+    // const int32_t s0 = __builtin_amdgcn_readfirstlane(srsrc_v.x);
+    // const int32_t s1 = __builtin_amdgcn_readfirstlane(srsrc_v.y);
+    // const int32_t s2 = __builtin_amdgcn_readfirstlane(srsrc_v.z);
+    // const int32_t s3 = __builtin_amdgcn_readfirstlane(srsrc_v.w);
+    // i32x4 srsrc = { s0, s1, s2, s3 };
 
     const T* lds_base = &dst.data[0] + (warp_id * elem_per_warp);
 

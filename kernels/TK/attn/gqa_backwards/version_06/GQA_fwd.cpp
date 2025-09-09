@@ -4,7 +4,7 @@
 constexpr int ATTN_B = 16; // batch size
 constexpr int ATTN_H = 64; // number of heads
 constexpr int ATTN_H_KV = 8; // number of heads for key and value
-constexpr int ATTN_N = 2048; // sequence length
+constexpr int ATTN_N = 1024; // sequence length
 constexpr int ATTN_D = 128; // dimension
 constexpr int Q_BLOCK_SIZE = 32; // q block size
 constexpr int KV_BLOCK_SIZE = 64; // kv block size

@@ -5,7 +5,7 @@ constexpr int ATTN_B = 16; // batch size
 constexpr int ATTN_H_Q = 64; // number of query heads
 constexpr int ATTN_H_KV = 8; // number of key/value heads (for GQA)
 constexpr int GROUP_SIZE = ATTN_H_Q / ATTN_H_KV; // queries per KV head group
-constexpr int ATTN_N = 2048; // sequence length
+constexpr int ATTN_N = 1024; // sequence length
 constexpr int ATTN_D = 128; // dimension
 constexpr int STEP_QO = 64; // block size for QO
 constexpr int BLOCK_SIZE_KV = 256; // block size for KV
@@ -445,12 +445,12 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
 
-                load(L_smem[toc], g.L_vec, {batch_idx, q_head_idx, 0, i + 1});
-                G::load<1, false>(Q_i_smem[toc][0], g.Q, {batch_idx, (i + 1) * 2, q_head_idx, 0});
                 auto attn_i_smem_subtile = subtile_inplace<WARP_SIZE_KV, DOT_SLICE_QO>(attn_i_smem, {warpid, 0});
                 store(attn_i_smem_subtile, dP_ij_bf16_accum_row); // bank conflicts
                 load(dO_i_col, subtile_inplace<DOT_SLICE_QO, D>(dO_i_smem[tic][0], {0, 0}));
                 load(Q_i_col, subtile_inplace<DOT_SLICE_QO, D>(Q_i_smem[tic][0], {0, 0}));
+                load(L_smem[toc], g.L_vec, {batch_idx, q_head_idx, 0, i + 1});
+                G::load<1, false>(Q_i_smem[toc][0], g.Q, {batch_idx, (i + 1) * 2, q_head_idx, 0});
                 asm volatile("s_waitcnt lgkmcnt(0)");
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
@@ -536,12 +536,12 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
 
-                load(delta_smem[toc], g.delta_vec, {batch_idx, q_head_idx, 0, i + 1});
-                G::load<1, false>(dO_i_smem[toc][0], g.dOg, {batch_idx, (i + 1) * 2, q_head_idx, 0});
                 auto attn_i_smem_subtile = subtile_inplace<WARP_SIZE_KV, DOT_SLICE_QO>(attn_i_smem, {warpid, 0});
                 store(attn_i_smem_subtile, dP_ij_bf16_accum_row); // bank conflicts
                 load(dO_i_col, subtile_inplace<DOT_SLICE_QO, D>(dO_i_smem[tic][0], {1, 0}));
                 load(Q_i_col, subtile_inplace<DOT_SLICE_QO, D>(Q_i_smem[tic][0], {1, 0}));
+                load(delta_smem[toc], g.delta_vec, {batch_idx, q_head_idx, 0, i + 1});
+                G::load<1, false>(dO_i_smem[toc][0], g.dOg, {batch_idx, (i + 1) * 2, q_head_idx, 0});
                 asm volatile("s_waitcnt lgkmcnt(0)");
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
@@ -628,11 +628,11 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
 
-                G::load<1, false>(Q_i_smem[toc][1], g.Q, {batch_idx, (i + 1) * 2 + 1, q_head_idx, 0});
                 auto attn_i_smem_subtile = subtile_inplace<WARP_SIZE_KV, DOT_SLICE_QO>(attn_i_smem, {warpid, 0});
                 store(attn_i_smem_subtile, dP_ij_bf16_accum_row); // bank conflicts
                 load(dO_i_col, subtile_inplace<DOT_SLICE_QO, D>(dO_i_smem[tic][1], {0, 0}));
                 load(Q_i_col, subtile_inplace<DOT_SLICE_QO, D>(Q_i_smem[tic][1], {0, 0}));
+                G::load<1, false>(Q_i_smem[toc][1], g.Q, {batch_idx, (i + 1) * 2 + 1, q_head_idx, 0});
                 asm volatile("s_waitcnt lgkmcnt(0)");
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
@@ -718,11 +718,11 @@ __global__ void attend_bwd_combined_ker(const attn_bwd_combined_globals<D> g) {
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
 
-                G::load<1, false>(dO_i_smem[toc][1], g.dOg, {batch_idx, (i + 1) * 2 + 1, q_head_idx, 0});
                 auto attn_i_smem_subtile = subtile_inplace<WARP_SIZE_KV, DOT_SLICE_QO>(attn_i_smem, {warpid, 0});
                 store(attn_i_smem_subtile, dP_ij_bf16_accum_row); // bank conflicts
                 load(dO_i_col, subtile_inplace<DOT_SLICE_QO, D>(dO_i_smem[tic][1], {1, 0}));
                 load(Q_i_col, subtile_inplace<DOT_SLICE_QO, D>(Q_i_smem[tic][1], {1, 0}));
+                G::load<1, false>(dO_i_smem[toc][1], g.dOg, {batch_idx, (i + 1) * 2 + 1, q_head_idx, 0});
                 asm volatile("s_waitcnt lgkmcnt(0)");
                 __builtin_amdgcn_s_barrier();
                 __builtin_amdgcn_sched_barrier(0);
@@ -1183,14 +1183,12 @@ PYBIND11_MODULE(tk_kernel_bkwd, m) {
         &attn_bwd_combined_globals<ATTN_D>::K, 
         &attn_bwd_combined_globals<ATTN_D>::V, 
         &attn_bwd_combined_globals<ATTN_D>::O, 
-        // &attn_bwd_combined_globals<ATTN_D>::dS,
         &attn_bwd_combined_globals<ATTN_D>::dOg, 
         &attn_bwd_combined_globals<ATTN_D>::dQg,
         &attn_bwd_combined_globals<ATTN_D>::dKg,
         &attn_bwd_combined_globals<ATTN_D>::dVg,
         &attn_bwd_combined_globals<ATTN_D>::L_vec, 
         &attn_bwd_combined_globals<ATTN_D>::delta_vec
-        // &attn_bwd_combined_globals<ATTN_D>::delta_vec_out
     );
 
     py::bind_function<dispatch_dq_shuffle<ATTN_D>>(m, "dispatch_dq_shuffle", 

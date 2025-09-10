@@ -51,13 +51,7 @@ class AITERBertSelfAttention(nn.Module):
         k = self.key(hidden_states).view(B, N, HKV, D).to(torch.bfloat16).contiguous()
         v = self.value(hidden_states).view(B, N, HKV, D).to(torch.bfloat16).contiguous()
 
-        if HKV != H:
-            group_size = H // HKV
-            k = k.unsqueeze(2).expand(B, N, group_size, HKV, D).reshape(B, N, H, D)
-            v = v.unsqueeze(2).expand(B, N, group_size, HKV, D).reshape(B, N, H, D)
-
         p = float(self.dropout.p) if self.training else 0.0
-
         out_bnhd, softmax_lse = aiter.flash_attn_func(
             q, k, v,
             dropout_p=p,

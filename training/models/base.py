@@ -30,6 +30,8 @@ class BertSelfAttention(nn.Module):
         self.value = nn.Linear(config.hidden_size, self.num_key_value_heads * self.attention_head_size)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
+        print(f"BertSelfAttention layer {layer_idx}")
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -45,25 +47,16 @@ class BertSelfAttention(nn.Module):
         H   = self.num_attention_heads
         HKV = self.num_key_value_heads
         D   = self.attention_head_size
-        group_size = H // HKV
 
         q = self.query(hidden_states).view(B, N, H, D).transpose(1, 2)  # [B, H, N, D]
         k = self.key(hidden_states).view(B, N, HKV, D).transpose(1, 2)  # [B, HKV, N, D]
         v = self.value(hidden_states).view(B, N, HKV, D).transpose(1, 2)  # [B, HKV, N, D]
 
-        if HKV != H:
-            k = k.repeat_interleave(group_size, dim=1).contiguous()  # [B, H, N, D]
-            v = v.repeat_interleave(group_size, dim=1).contiguous()  # [B, H, N, D]
-        else:
-            pass  # k,v already [B, H, N, D]
-
         attn_scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(D)
         if attention_mask is not None:
             attn_scores = attn_scores + attention_mask
-
         attn_probs = nn.functional.softmax(attn_scores, dim=-1)
         attn_probs = self.dropout(attn_probs)
-
         context = torch.matmul(attn_probs, v)
         context = context.transpose(1, 2).contiguous().view(B, N, self.all_head_size)
         return context, attn_probs

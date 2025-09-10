@@ -17,19 +17,29 @@ from sklearn.metrics import classification_report
 from transformers import (AutoTokenizer, AutoModel,get_linear_schedule_with_warmup)
 
 
+use_base = True
+use_aiter = False
+use_hipkittens = False 
 PRE_TRAINED_MODEL_NAME = "bert-base-cased"
 EPOCHS = 10
 BATCH_SIZE = 16
-MAX_LEN = 1024 
+MAX_LEN = 512 
+if use_hipkittens:
+    MAX_LEN = 1024
 RANDOM_SEED = 42
+LR = 2e-5
 wandb.init(
-    project="bert-imdb-sentiment",
+    project=f"amd-hipkittens",
+    name=f"bert-imdb-sentiment-len{MAX_LEN}-base{use_base}-aiter{use_aiter}-hipkittens{use_hipkittens}",
     config={
         "model_name": PRE_TRAINED_MODEL_NAME,
         "epochs": EPOCHS,
         "batch_size": BATCH_SIZE,
         "max_len": MAX_LEN,
-        "lr": 2e-5,
+        "lr": LR,
+        "use_base": use_base,
+        "use_aiter": use_aiter,
+        "use_hipkittens": use_hipkittens, 
     }
 )
 
@@ -48,7 +58,6 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # ----------------------------
 from datasets import load_dataset
 ds = load_dataset("imdb")  # splits: train, test, unsupervised
-# combine train+test, we’ll re-split downstream (keeps your pipeline intact)
 df_train = ds["train"].to_pandas()
 df_test  = ds["test"].to_pandas()
 df = pd.concat([df_train, df_test], ignore_index=True)
@@ -134,17 +143,13 @@ from models.aiter import AITERBertSelfAttention
 from models.hipkittens import HipKittensBertSelfAttention
 from transformers import BertModel, BertConfig
 
-use_base = True
-use_aiter = False
-use_hipkittens = False
 if use_base:
     BertSelfAttention = BertSelfAttention
-elif use_aiter:
+elif use_aiter: 
     BertSelfAttention = AITERBertSelfAttention
 elif use_hipkittens:
     BertSelfAttention = HipKittensBertSelfAttention
-
-assert(not use_aiter and not use_hipkittens, "Only one of use_aiter or use_hipkittens can be True")
+assert(sum([use_base, use_aiter, use_hipkittens]) == 1, "Only one of use_base, use_aiter or use_hipkittens can be True")
 
 class SentimentClassifier(nn.Module):
     def __init__(self, tokenizer, n_classes: int):
@@ -167,14 +172,14 @@ class SentimentClassifier(nn.Module):
         self.drop = nn.Dropout(p=0.3)
         self.out = nn.Linear(config.hidden_size, n_classes)
 
-        self._custom_init(mean=10, std=0.1)
+        self._custom_init(mean=0.0, std=0.02)
 
     def _custom_init(self, mean=0.0, std=0.02):
-        for module in self.modules():
-            if isinstance(module, (nn.Linear, nn.Embedding)):
-                nn.init.normal_(module.weight, mean=mean, std=std)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                nn.init.zeros_(module.bias)
+        for m in self.modules():
+            if isinstance(m, (nn.Linear, nn.Embedding)):
+                nn.init.normal_(m.weight, mean=0.0, std=std)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.zeros_(m.bias)
 
     def forward(self, input_ids, attention_mask):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
@@ -182,22 +187,16 @@ class SentimentClassifier(nn.Module):
         x = self.drop(pooled)
         return self.out(x)
 
-
+print("Creating model...")
 class_names = ["negative", "positive"]
 # model = SentimentClassifier(PRE_TRAINED_MODEL_NAME, n_classes=len(class_names)).to(device)
 model = SentimentClassifier(tokenizer, n_classes=len(class_names)).to(device)
 
 for i, layer in enumerate(model.bert.encoder.layer):
     new_self = BertSelfAttention(model.bert.config, layer_idx=i)
-    # with torch.no_grad():
-    #     old_self = layer.attention.self
-    #     # copy query/key/value weights & bias
-    #     new_self.query.load_state_dict(old_self.query.state_dict())
-    #     new_self.key.load_state_dict(old_self.key.state_dict())
-    #     new_self.value.load_state_dict(old_self.value.state_dict())
-    #     # dropout/LN/etc. stay in layer.attention.output
     layer.attention.self = new_self
 model = model.to(device).to(torch.bfloat16)
+print("Model created.")
 
 # Shape sanity check
 _batch = next(iter(train_data_loader))
@@ -207,7 +206,7 @@ print("attention_mask shape:", _batch["attention_mask"].shape)
 # ----------------------------
 # Optimizer / Scheduler / Loss
 # ----------------------------
-optimizer = AdamW(model.parameters(), lr=2e-5)
+optimizer = AdamW(model.parameters(), lr=LR)
 total_steps = len(train_data_loader) * EPOCHS
 
 scheduler = get_linear_schedule_with_warmup(
@@ -251,7 +250,7 @@ def train_epoch(
         scheduler.step()
         optimizer.zero_grad(set_to_none=True)
 
-        if i % 100 == 0:
+        if i % 100 == 0 and i > 0:
             val_acc, val_loss = eval_model(
                 model,
                 val_data_loader,
@@ -261,6 +260,7 @@ def train_epoch(
                 limit=50,
             )
             print(f"{i}: val acc: {val_acc:.4f}, val loss: {val_loss:.4f}")
+            print(f"{i}: train acc: {correct / float(n_examples):.4f}, train loss: {float(np.mean(losses)):.4f}")
 
     acc = correct / float(n_examples)
     return acc, float(np.mean(losses)) if losses else 0.0
@@ -305,22 +305,23 @@ history = {"train_acc": [], "train_loss": [], "val_acc": [], "val_loss": []}
 best_val_acc = 0.0
 
 # starting val acc
-val_acc, val_loss = eval_model(
-    model,
-    val_data_loader,
-    loss_fn,
-    device,
-    len(df_val),
-)
-print(f"Starting val acc: {val_acc:.4f}, val loss: {val_loss:.4f}")
+# val_acc, val_loss = eval_model(
+#     model,
+#     val_data_loader,
+#     loss_fn,
+#     device,
+#     len(df_val),
+#     limit=50,
+# )
+# print(f"Starting val acc: {val_acc:.4f}, val loss: {val_loss:.4f}")
 
 
-wandb.log({
-    "epoch": 0,
-    "val_acc": val_acc,
-    "val_loss": val_loss,
-    "runtime": time.time(),
-})
+# wandb.log({
+#     "epoch": 0,
+#     "val_acc": val_acc,
+#     "val_loss": val_loss,
+#     "runtime": time.time(),
+# })
 
 for epoch in range(1, EPOCHS + 1):
     print(f"Epoch {epoch}/{EPOCHS}")
@@ -432,12 +433,3 @@ print(
     )
 )
 
-# ----------------------------
-# Example per-item view
-# ----------------------------
-idx = 5
-print("\nExample review:")
-print(y_texts[idx][:500], "..." if len(y_texts[idx]) > 500 else "")
-print("True:", class_names[int(y_true[idx])])
-per_item = pd.DataFrame({"class_names": class_names, "values": y_pred_probs[idx].numpy()})
-print(per_item)

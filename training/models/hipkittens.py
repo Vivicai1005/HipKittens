@@ -18,9 +18,8 @@ class HipKittensFlashAttnFn(Function):
 
     @staticmethod
     def forward(ctx, q_bnhd: torch.Tensor, k_bnhd: torch.Tensor, v_bnhd: torch.Tensor):
-        assert q_bnhd.dim() == 4 and k_bnhd.shape == q_bnhd.shape and v_bnhd.shape == q_bnhd.shape, \
-            "Expected q,k,v as [B, N, H, D] (BNHD) with matching shapes."
         B, N, H, D = q_bnhd.shape
+        HKV = k_bnhd.shape[2]
         dev = q_bnhd.device
         out_dtype = q_bnhd.dtype  # remember caller dtype
 
@@ -31,10 +30,17 @@ class HipKittensFlashAttnFn(Function):
 
         # Allocate outputs for the kernels
         O = torch.empty((B, N, H, D), dtype=torch.bfloat16, device=dev).contiguous()    # BNHD
-        L = torch.empty((B, H, N, 1), dtype=torch.float32,  device=dev).contiguous()    # BHN1 (matches your harness)
+        L = torch.empty((B, H, 1, N), dtype=torch.float32,  device=dev).contiguous()    # BHN1 (matches your harness)
 
         # Forward kernel
         tk_kernel_fwd.dispatch_fwd(q, k, v, O, L)
+
+        if O.isnan().any():
+            print("O is nan")
+            breakpoint()
+        if L.isnan().any():
+            print("L is nan")
+            breakpoint()
 
         # Save for backward
         ctx.save_for_backward(q, k, v, O, L)
@@ -45,6 +51,7 @@ class HipKittensFlashAttnFn(Function):
     def backward(ctx, dO_bnhd: torch.Tensor):
         q, k, v, O, L = ctx.saved_tensors
         B, N, H, D = O.shape
+        HKV = k.shape[2]
         dev = dO_bnhd.device
 
         # Cast grad to bf16 for kernels
@@ -53,14 +60,39 @@ class HipKittensFlashAttnFn(Function):
         # Allocate grads and workspaces
         dQ_in = torch.empty((B, H, N, D), dtype=torch.bfloat16, device=dev).contiguous()  # BHND (pre-shuffle)
         dQ    = torch.empty((B, N, H, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
-        dK    = torch.empty((B, N, H, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
-        dV    = torch.empty((B, N, H, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
-        delta = torch.empty((B, H, 1, N), dtype=torch.float32,  device=dev).contiguous()  # BH1N (matches your harness)
+        dK    = torch.empty((B, N, HKV, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
+        dV    = torch.empty((B, N, HKV, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
+        delta = torch.empty((B, H, N, 1), dtype=torch.float32,  device=dev).contiguous()  # BH1N (matches your harness)
+
+        if dO.isnan().any():
+            print("dO is nan")
+            breakpoint()
 
         # Backward kernels
         tk_kernel_bkwd.dispatch_prep(O, dO, delta)
+        if delta.isnan().any():
+            print("delta is nan")
+            breakpoint()
+
         tk_kernel_bkwd.dispatch_bwd_combined(q, k, v, O, dO, dQ_in, dK, dV, L, delta)
+        if dQ_in.isnan().any():
+            print("dQ_in is nan")
+            breakpoint()
+        if dQ.isnan().any():
+            print("dQ is nan")
+            breakpoint()
+        if dK.isnan().any():
+            print("dK is nan")
+            breakpoint()
+        if dV.isnan().any():
+            print("dV is nan")
+            breakpoint()
+
         tk_kernel_bkwd.dispatch_dq_shuffle(dQ_in, dQ)
+        if dQ.isnan().any():
+            print("dQ is nan")
+            breakpoint()
+
         return dQ.to(dO_bnhd.dtype), dK.to(dO_bnhd.dtype), dV.to(dO_bnhd.dtype)
 
 
@@ -76,13 +108,12 @@ class HipKittensBertSelfAttention(nn.Module):
             raise ValueError("hidden_size must be multiple of num_attention_heads")
         
         self.layer_idx = layer_idx
-        self.num_attention_heads = config.num_attention_heads                  # h_q
+        self.num_attention_heads = config.num_attention_heads                                        # h_q
         self.num_key_value_heads = getattr(config, "num_key_value_heads", self.num_attention_heads)  # h_kv
         self.attention_head_size = config.hidden_size // self.num_attention_heads
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
         
         # Linear layers for Q, K, V
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
+        self.query = nn.Linear(config.hidden_size, self.num_attention_heads * self.attention_head_size)
         self.key   = nn.Linear(config.hidden_size, self.num_key_value_heads * self.attention_head_size)
         self.value = nn.Linear(config.hidden_size, self.num_key_value_heads * self.attention_head_size)
         
@@ -112,10 +143,7 @@ class HipKittensBertSelfAttention(nn.Module):
         k = self.key(hidden_states).view(B, N, HKV, D).to(torch.bfloat16).contiguous()
         v = self.value(hidden_states).view(B, N, HKV, D).to(torch.bfloat16).contiguous()
 
-        if HKV != H:
-            group_size = H // HKV
-            k = k.unsqueeze(2).expand(B, N, group_size, HKV, D).reshape(B, N, H, D)
-            v = v.unsqueeze(2).expand(B, N, group_size, HKV, D).reshape(B, N, H, D)
+        breakpoint()
 
         out_bnhd = HipKittensFlashAttnFn.apply(q, k, v)  # BNHD
         ctx = out_bnhd.to(q.dtype).contiguous().view(B, N, H * D)

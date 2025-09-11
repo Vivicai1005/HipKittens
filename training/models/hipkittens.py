@@ -59,7 +59,7 @@ class HipKittensFlashAttnFn(Function):
         dQ    = torch.empty((B, N, H, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
         dK    = torch.empty((B, N, HKV, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
         dV    = torch.empty((B, N, HKV, D), dtype=torch.bfloat16, device=dev).contiguous()  # BNHD
-        delta = torch.empty((B, H, N, 1), dtype=torch.float32,  device=dev).contiguous() 
+        delta = torch.empty((B, H, 1, N), dtype=torch.float32,  device=dev).contiguous() 
 
         if dO.isnan().any():
             print("dO is nan")

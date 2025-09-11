@@ -143,8 +143,6 @@ class HipKittensBertSelfAttention(nn.Module):
         k = self.key(hidden_states).view(B, N, HKV, D).to(torch.bfloat16).contiguous()
         v = self.value(hidden_states).view(B, N, HKV, D).to(torch.bfloat16).contiguous()
 
-        breakpoint()
-
         out_bnhd = HipKittensFlashAttnFn.apply(q, k, v)  # BNHD
         ctx = out_bnhd.to(q.dtype).contiguous().view(B, N, H * D)
         return ctx, None

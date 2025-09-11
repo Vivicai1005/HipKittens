@@ -17,9 +17,9 @@ from sklearn.metrics import classification_report
 from transformers import (AutoTokenizer, AutoModel,get_linear_schedule_with_warmup)
 
 
-use_base = True
+use_base = False
 use_aiter = False
-use_hipkittens = False 
+use_hipkittens = True 
 PRE_TRAINED_MODEL_NAME = "bert-base-cased"
 EPOCHS = 10
 BATCH_SIZE = 16

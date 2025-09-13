@@ -173,7 +173,7 @@ print(f"Speedup from TK: {speedup:.2f}x")
 
 
 # Correctness
-o_diff = o - o_tk
+o_diff = o- o_tk
 print("o: ", o[0, 0, 0, :8])
 print("o_tk: ", o_tk[0, 0, 0, :8])
 print("o_diff: ", o_diff[0, 0, 0, :8])
@@ -181,5 +181,4 @@ print("o_diff: ", o_diff[0, 0, 0, :8])
 max_diff = o_diff.abs().max().item()
 print("max_diff: ", max_diff)
 
-
-
+# breakpoint()

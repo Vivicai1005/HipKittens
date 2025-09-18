@@ -39,8 +39,8 @@ __global__ void attend_ker(const attn_globals<D> g) {
     st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::row> (&k_smem)[2] = al.allocate<st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::row>, 2>();
     st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::accumulator_col> (&v_smem)[2] = al.allocate<st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::accumulator_col>, 2>();
     
-    const int head_idx = (blockIdx.x % 8) * 8 + (blockIdx.x / 8);
-    // const int head_idx = blockIdx.x;
+    // const int head_idx = (blockIdx.x % 8) * 8 + (blockIdx.x / 8);
+    const int head_idx = blockIdx.x;
     const int batch_idx = blockIdx.z;
     const int GROUP_SIZE = ATTN_H / ATTN_H_KV;
     const int head_idx_kv = head_idx / GROUP_SIZE;
@@ -77,11 +77,12 @@ __global__ void attend_ker(const attn_globals<D> g) {
 
     G::load<1, false>(k_smem[0], g.Kg, {batch_idx, 0, head_idx_kv, 0}, swizzled_offsets_K);
 
-    // Pre-scale Q by temperature
-    qo_tile<D, float> q_reg_fl;
-    load<1, qo_tile<D, float>, _gl_QKVO>(q_reg_fl, g.Qg, {batch_idx, tile_idx, head_idx, 0});
-    mul(q_reg_fl, q_reg_fl, TEMPERATURE_SCALE);  // Use sqrtf for clarity
-    copy(q_reg, q_reg_fl);
+    // qo_tile<D, float> q_reg_fl;
+    // load<1, qo_tile<D, float>, _gl_QKVO>(q_reg_fl, g.Qg, {batch_idx, tile_idx, head_idx, 0});
+    // mul(q_reg_fl, q_reg_fl, TEMPERATURE_SCALE);  // Use sqrtf for clarity
+    // copy(q_reg, q_reg_fl);
+    // swap_layout_and_transpose(q_reg_transposed, q_reg);
+    load<1>(q_reg, g.Qg, {batch_idx, tile_idx, head_idx, 0});
     swap_layout_and_transpose(q_reg_transposed, q_reg);
 
     zero(o_reg);
@@ -102,6 +103,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
     asm volatile("s_waitcnt lgkmcnt(0)");
     zero(att_block[0]);
     mma_AtB(att_block[0], k_reg_transposed, q_reg_transposed, att_block[0]);
+    mul(att_block[0], att_block[0], TEMPERATURE_SCALE);
 
     // Each warp performs a partial softmax of QK0 (i.e. some of the online softmax up until but not including the second exponential scaling of the attention block likely)
     // col_max(max_vec, att_block[0], max_vec);
@@ -158,6 +160,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mul_col(o_reg, o_reg, max_vec_prev);
         mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
         //      Partial softmax for QK1
+        mul(att_block[1], att_block[1], TEMPERATURE_SCALE);
         copy(max_vec_prev, max_vec);
         col_max(max_vec, att_block[1], max_vec);
         sub_col(att_block[1], att_block[1], max_vec);
@@ -208,6 +211,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mul_col(o_reg, o_reg, max_vec_prev);
         mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
         //      Partial softmax for QK2
+        mul(att_block[0], att_block[0], TEMPERATURE_SCALE);
         copy(max_vec_prev, max_vec);
         col_max(max_vec, att_block[0], max_vec);
         sub_col(att_block[0], att_block[0], max_vec);
@@ -259,9 +263,10 @@ __global__ void attend_ker(const attn_globals<D> g) {
     //      A2V2
     asm volatile("s_waitcnt lgkmcnt(0)");
     __builtin_amdgcn_s_setprio(1);
-    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     mul_col(o_reg, o_reg, max_vec_prev);
+    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     //      Partial softmax for QK3
+    mul(att_block[1], att_block[1], TEMPERATURE_SCALE);
     copy(max_vec_prev, max_vec);
     col_max(max_vec, att_block[1], max_vec);
     sub_col(att_block[1], att_block[1], max_vec);
@@ -307,9 +312,10 @@ __global__ void attend_ker(const attn_globals<D> g) {
     // Cluster 6:
     //      A3V3
     asm volatile("s_waitcnt lgkmcnt(0)");
-    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     mul_col(o_reg, o_reg, max_vec_prev);
+    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     //      Partial softmax for QK4
+    mul(att_block[0], att_block[0], TEMPERATURE_SCALE);
     copy(max_vec_prev, max_vec);
     col_max(max_vec, att_block[0], max_vec);
     sub_col(att_block[0], att_block[0], max_vec);
@@ -353,9 +359,10 @@ __global__ void attend_ker(const attn_globals<D> g) {
     // Cluster 10:
     //      A4V4
     asm volatile("s_waitcnt lgkmcnt(0)");
-    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     mul_col(o_reg, o_reg, max_vec_prev);
+    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     //      Full softmax for QK5
+    mul(att_block[1], att_block[1], TEMPERATURE_SCALE);
     copy(max_vec_prev, max_vec);
     col_max(max_vec, att_block[1], max_vec);
     sub_col(att_block[1], att_block[1], max_vec);
@@ -379,8 +386,8 @@ __global__ void attend_ker(const attn_globals<D> g) {
     // Cluster 12:
     //      A5V5
     asm volatile("s_waitcnt lgkmcnt(0)");
-    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     mul_col(o_reg, o_reg, max_vec_prev);
+    mma_AtB(o_reg, v_reg, att_block_bf16, o_reg);
     div_col(o_reg, o_reg, norm_vec);
     __builtin_amdgcn_sched_barrier(0);
     __builtin_amdgcn_s_barrier();

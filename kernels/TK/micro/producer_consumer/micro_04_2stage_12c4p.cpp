@@ -71,7 +71,7 @@ void micro_tk(const micro_globals g) {
     const bool is_producer = (warp_group_id == 0);
     const bool is_consumer = (warp_group_id > 0 && warp_group_id <= M_BLOCK);
     const int consumer_idx = is_consumer ? warp_group_id - 1 : 0;
-    __syncthreads();
+    // __syncthreads();
 
     // preswizzled offsets
     using T = typename st_bf<BLOCK_SIZE, BLOCK_SIZE>::dtype;

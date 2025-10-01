@@ -41,5 +41,3 @@ params_log:
   trainable_params_log: True
   non_trainable_params_log: True
 
-gpu_affinity:
-  _target_: train.callbacks.gpu_affinity.GpuAffinity

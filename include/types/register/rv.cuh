@@ -54,16 +54,16 @@ struct rv {
     static constexpr bool is_ortho = std::is_same_v<layout, ducks::rv_layout::ortho>;
     using T = kittens::base_types::packing<_T>::unpacked_type;
     using T2 = kittens::base_types::packing<_T>::packed_type;
-    // using dtype = std::conditional_t<is_naive || is_ortho, T, T2>; ///< Data type of the matrix elements
-    using dtype = T;
+    using dtype = std::conditional_t<is_naive || is_ortho, T, T2>; ///< Data type of the matrix elements
+    // using dtype = T;
     static constexpr int packing = kittens::base_types::packing<_T>::num();
 
     static constexpr int length = _length; ///< Length in elements.
     static_assert(length % _tile_length == 0, "Length must be divisible by the tile dimension");
     static constexpr int tiles  = _length / _tile_length; ///< Length in subtiles, aliased for consistency with sv type
-    // static constexpr int inner_dim = is_naive || is_ortho ? 1 : _shape::elements_per_thread / 2;
-    static constexpr int inner_dim = 1;
-    static constexpr int outer_dim = is_naive ? (tiles + 1) / 2 : tiles;
+    static constexpr int inner_dim = is_naive ? length / kittens::WARP_THREADS : (is_ortho ? 1 : _shape::elements_per_thread / 2);
+    // static constexpr int inner_dim = 1;
+    static constexpr int outer_dim = is_naive ? 1 : tiles;
 
     // For align layout
     static constexpr int elements_per_thread = _shape::elements_per_thread;
@@ -110,5 +110,7 @@ template<typename T> concept tile_layout = align_layout<T> || ortho_layout<T>;
 template<int _l, int _tile_length, ducks::rv_layout::all layout=ducks::rv_layout::naive, ducks::rt_shape::all shape=ducks::rt_shape::rt_16x16> using rv_fl = rv<float, _l, _tile_length, layout, shape>;
 template<int _l, int _tile_length, ducks::rv_layout::all layout=ducks::rv_layout::naive, ducks::rt_shape::all shape=ducks::rt_shape::rt_16x16> using rv_bf = rv<bf16,  _l, _tile_length, layout, shape>;
 template<int _l, int _tile_length, ducks::rv_layout::all layout=ducks::rv_layout::naive, ducks::rt_shape::all shape=ducks::rt_shape::rt_16x16> using rv_hf = rv<half,  _l, _tile_length, layout, shape>;
+
+template<typename _T, int _l> using rv_naive = rv<_T,  _l, _l, ducks::rv_layout::naive, ducks::rt_shape::rt_16x16>;
 
 } // namespace kittens

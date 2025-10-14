@@ -27,6 +27,11 @@ __device__ inline static void load(RV &dst, const GL &src, const COORD &idx) {
 
     U *src_ptr = (U*)&src[(idx.template unit_coord<-1, 3>())];
     int laneid = ::kittens::laneid();
+
+    uint32_t buffer_size = src.batch() * src.depth() * src.rows() * src.cols() * sizeof(U);
+    std::uintptr_t as_int = reinterpret_cast<std::uintptr_t>(src_ptr);
+    std::uint64_t  as_u64 = static_cast<std::uint64_t>(as_int);    // widen if host is 32-bit
+    buffer_resource br = make_buffer_resource(as_u64, buffer_size, 0x00020000);
     
     // TODO: this uses no inter-thread communication and is therefore not optimal.
     if constexpr (std::is_same_v<typename RV::layout, align_l>) {
@@ -98,13 +103,67 @@ __device__ inline static void load(RV &dst, const GL &src, const COORD &idx) {
         }
     }
     else if constexpr (std::is_same_v<typename RV::layout, naive_l>) {
-        #pragma unroll
-        for(auto w = 0; w < dst.outer_dim; w++) {
-            int idx = w*kittens::WARP_THREADS + laneid;
-            if(idx < dst.length) {
-                dst[w][0] = base_types::convertor<T, U>::convert(src_ptr[idx]);
+        const int offset = laneid * dst.inner_dim;
+        constexpr int inner_dim_bytes = RV::inner_dim * sizeof(U);
+        // Use buffer_load_dwordx4
+        if constexpr (inner_dim_bytes % 16 == 0) {
+            constexpr int elements_per_load = 16 / sizeof(U);
+            #pragma unroll
+            for (int i = 0; i < inner_dim_bytes / 16; i++) {
+                float4 loaded = std::bit_cast<float4>(llvm_amdgcn_raw_buffer_load_b128(
+                    std::bit_cast<i32x4>(br),
+                    (offset * sizeof(U)) + i * 16,
+                    0,
+                    0
+                ));
+                U* tmp = reinterpret_cast<U*>(&loaded);
+                #pragma unroll
+                for (int j = 0; j < elements_per_load; j++) {
+                    dst[0][i * elements_per_load + j] = base_types::convertor<T, U>::convert(tmp[j]);
+                }
+            }
+        // Use buffer_load_dwordx2
+        } else if constexpr (inner_dim_bytes % 8 == 0) {
+            constexpr int elements_per_load = 8 / sizeof(U);
+            #pragma unroll
+            for (int i = 0; i < inner_dim_bytes / 8; i++) {
+                float2 loaded = std::bit_cast<float2>(llvm_amdgcn_raw_buffer_load_b64(
+                    std::bit_cast<i32x4>(br),
+                    (offset * sizeof(U)) + i * 8,
+                    0,
+                    0
+                ));
+                U* tmp = reinterpret_cast<U*>(&loaded);
+                #pragma unroll
+                for (int j = 0; j < elements_per_load; j++) {
+                    dst[0][i * elements_per_load + j] = base_types::convertor<T, U>::convert(tmp[j]);
+                }
+            }
+        // Use buffer_load_dword
+        } else if constexpr (inner_dim_bytes % 4 == 0) {
+            constexpr int elements_per_load = 4 / sizeof(U);
+            #pragma unroll
+            for (int i = 0; i < inner_dim_bytes / 4; i++) {
+                float loaded = std::bit_cast<float>(llvm_amdgcn_raw_buffer_load_b32(
+                    std::bit_cast<i32x4>(br),
+                    (offset * sizeof(U)) + i * 4,
+                    0,
+                    0
+                ));
+                U* tmp = reinterpret_cast<U*>(&loaded);
+                #pragma unroll
+                for (int j = 0; j < elements_per_load; j++) {
+                    dst[0][i * elements_per_load + j] = base_types::convertor<T, U>::convert(tmp[j]);
+                }
+            }
+        // fall back to direct load
+        } else {
+            #pragma unroll
+            for (int i = 0; i < RV::inner_dim; i++) {
+                dst[0][i] = base_types::convertor<T, U>::convert(src_ptr[offset + i]);
             }
         }
+
     }
 }
 
@@ -125,6 +184,11 @@ __device__ inline static void store(const GL &dst, const RV &src, const COORD &i
     
     U *dst_ptr = (U*)&dst[(idx.template unit_coord<-1, 3>())];
     int laneid = ::kittens::laneid();
+
+    uint32_t buffer_size = dst.batch() * dst.depth() * dst.rows() * dst.cols() * sizeof(U);
+    std::uintptr_t as_int = reinterpret_cast<std::uintptr_t>(dst_ptr);
+    std::uint64_t  as_u64 = static_cast<std::uint64_t>(as_int);    // widen if host is 32-bit
+    buffer_resource br = make_buffer_resource(as_u64, buffer_size, 0x00020000);
     
     if constexpr (std::is_same_v<typename RV::layout, align_l>) {
         #pragma unroll
@@ -149,11 +213,68 @@ __device__ inline static void store(const GL &dst, const RV &src, const COORD &i
         }
     }
     else if constexpr (std::is_same_v<typename RV::layout, naive_l>) {
-        #pragma unroll
-        for(auto w = 0; w < src.outer_dim; w++) {
-            int idx = w*64 + laneid;
-            if(idx < src.length) {
-                dst_ptr[idx] = base_types::convertor<U, T>::convert(src[w][0]);
+        const int offset = laneid * src.inner_dim;
+        constexpr int inner_dim_bytes = RV::inner_dim * sizeof(U);
+
+        // Use buffer_store_dwordx4
+        if constexpr (inner_dim_bytes % 16 == 0) {
+            constexpr int elements_per_store = 16 / sizeof(U);
+            U tmp[elements_per_store];
+            #pragma unroll
+            for (int i = 0; i < inner_dim_bytes / 16; i++) {
+                #pragma unroll
+                for (int j = 0; j < elements_per_store; j++) {
+                    tmp[j] = base_types::convertor<U, T>::convert(src[0][i * elements_per_store + j]);
+                }
+                __uint128_t val = *reinterpret_cast<__uint128_t*>(tmp);
+                llvm_amdgcn_raw_buffer_store_b128(
+                    val,
+                    std::bit_cast<i32x4>(br),
+                    (offset * sizeof(U)) + i * 16,
+                    0,
+                    0
+                );
+            }
+        } else if constexpr (inner_dim_bytes % 8 == 0) {
+            constexpr int elements_per_store = 8 / sizeof(U);
+            U tmp[elements_per_store];
+            #pragma unroll
+            for (int i = 0; i < inner_dim_bytes / 8; i++) {
+                #pragma unroll
+                for (int j = 0; j < elements_per_store; j++) {
+                    tmp[j] = base_types::convertor<U, T>::convert(src[0][i * elements_per_store + j]);
+                }
+                uint64_t val = *reinterpret_cast<uint64_t*>(tmp);
+                llvm_amdgcn_raw_buffer_store_b64(
+                    val,
+                    std::bit_cast<i32x4>(br),
+                    (offset * sizeof(U)) + i * 8,
+                    0,
+                    0
+                );
+            }
+        } else if constexpr (inner_dim_bytes % 4 == 0) {
+            constexpr int elements_per_store = 4 / sizeof(U);
+            U tmp[elements_per_store];
+            #pragma unroll
+            for (int i = 0; i < inner_dim_bytes / 4; i++) {
+                #pragma unroll
+                for (int j = 0; j < elements_per_store; j++) {
+                    tmp[j] = base_types::convertor<U, T>::convert(src[0][i * elements_per_store + j]);
+                }
+                uint32_t val = *reinterpret_cast<uint32_t*>(tmp);
+                llvm_amdgcn_raw_buffer_store_b32(
+                    val,
+                    std::bit_cast<i32x4>(br),
+                    (offset * sizeof(U)) + i * 4,
+                    0,
+                    0
+                );
+            }
+        } else {
+            #pragma unroll
+            for (int i = 0; i < RV::inner_dim; i++) {
+                dst_ptr[offset + i] = base_types::convertor<U, T>::convert(src[0][i]);
             }
         }
     }

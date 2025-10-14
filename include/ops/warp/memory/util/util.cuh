@@ -92,6 +92,9 @@ __device__ inline i32x4 make_srsrc(const void* ptr, uint32_t range_bytes, uint32
     return *reinterpret_cast<const i32x4*>(&rsrc);
 }
 
+__device__ uint32_t llvm_amdgcn_raw_buffer_load_b32(i32x4 srsrc, uint32_t voffset, uint32_t soffset, uint32_t coherency)
+    __asm("llvm.amdgcn.raw.buffer.load.i32");
+
 __device__ uint64_t llvm_amdgcn_raw_buffer_load_b64(i32x4 srsrc, uint32_t voffset, uint32_t soffset, uint32_t coherency)
     __asm("llvm.amdgcn.raw.buffer.load.i64");
 

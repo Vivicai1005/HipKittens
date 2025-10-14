@@ -27,7 +27,6 @@ namespace kittens {
  * @param[in] src_accum The initial value to include in the reduction if `reset` is false.
  */
 
-#ifdef KITTENS_CDNA4
 template<typename op, ducks::rv::all RV, bool reset>
 __device__ static inline void reduce(
         typename base_types::packing<typename RV::dtype>::unpacked_type &dst_accum,
@@ -52,7 +51,7 @@ __device__ static inline void reduce(
         // final result has now been achieved (incorporating src_accum if necessary), finally broadcast back to all threads.
         dst_accum = packed_shfl(kittens::MASK_ALL, accum, 0);
     }
-    else if constexpr (std::is_same_v<typename RV::layout, align_l> || std::is_same_v<typename RV::layout, accum_align_l>) {
+    else if constexpr (std::is_same_v<typename RV::layout, align_l>) {
         T accum = op::template op<T>(src[0][0].x, src[0][0].y);
 
         #pragma unroll
@@ -80,13 +79,11 @@ __device__ static inline void reduce(
     else if constexpr (std::is_same_v<typename RV::layout, naive_l>) {
         T accum = src[0][0];
         #pragma unroll
-        for(int i = 1; i < src.outer_dim; i++) {
-            if (i < src.outer_dim-1 || i*kittens::WARP_THREADS + laneid < src.length) {
-                accum = op::template op<T>(accum, src[i][0]);
-            }
+        for(int i = 1; i < src.inner_dim; i++) {
+            accum = op::template op<T>(accum, src[0][i]);
         }
 
-        if (src.length > 32) accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 32));
+        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 32));
         accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 16));
         accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 8));
         accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 4));
@@ -96,71 +93,6 @@ __device__ static inline void reduce(
         dst_accum = packed_shfl(kittens::MASK_ALL, accum, 0);
     }
 }
-#else
-template<typename op, ducks::rv::all RV, bool reset>
-__device__ static inline void reduce(
-        typename base_types::packing<typename RV::dtype>::unpacked_type &dst_accum,
-        const RV &src,
-        const typename base_types::packing<typename RV::dtype>::unpacked_type &src_accum) {
-    using T = base_types::packing<typename RV::dtype>::unpacked_type;
-    int laneid = kittens::laneid();
-    if constexpr (std::is_same_v<typename RV::layout, ortho_l>) {
-        T accum = op::template op<T>(src[0][0].x, src[0][0].y);
-        #pragma unroll
-        for(int i = 1; i < src.outer_dim; i++) {
-            accum = op::template op<T>(accum, src[i][0].x);
-            accum = op::template op<T>(accum, src[i][0].y);
-        }
-        // we've now reduced everything into 8 distinct values, replicated across lanes x, x+1, x+2, x+3 for x≡0(mod4)
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 16));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 8));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 4));
-        // we've now reduced everything into 1 distinct value, replicated across lanes 0, 1, 2, 3
-        if constexpr (!reset) accum = op::template op<T>(accum, src_accum);
-        // final result has now been achieved (incorporating src_accum if necessary), finally broadcast back to all threads.
-        dst_accum = packed_shfl(kittens::MASK_ALL, accum, 0);
-    }
-    else if constexpr (std::is_same_v<typename RV::layout, align_l>) {
-        T accum = op::template op<T>(src[0][0].x, src[0][0].y);
-        accum = op::template op<T>(accum,       src[0][1].x);
-        accum = op::template op<T>(accum,       src[0][1].y);
-        #pragma unroll
-        for(int i = 1; i < src.outer_dim; i++) {
-            // it is possible that shfl_sync's would be faster but I doubt it, replication is likely better. Certainly simpler.
-            accum = op::template op<T>(accum, src[i][0].x);
-            accum = op::template op<T>(accum, src[i][0].y);
-            accum = op::template op<T>(accum, src[i][1].x);
-            accum = op::template op<T>(accum, src[i][1].y);
-        }
-        // we've now reduced everything into 8 distinct values, replicated across lanes x, x+8, x+16, ..., x+54 for x<8
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 4));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 2));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 1));
-        // we've now reduced everything into 1 distinct value, replicated across lanes 0, 8, 16, 24, ..., 54
-        if constexpr (!reset) accum = op::template op<T>(accum, src_accum);
-        // final result has now been achieved (incorporating src_accum if necessary), finally broadcast back to all threads from lane 0
-        dst_accum = packed_shfl(kittens::MASK_ALL, accum, 0);
-    }
-    else if constexpr (std::is_same_v<typename RV::layout, naive_l>) {
-        T accum = src[0][0];
-        #pragma unroll
-        for(int i = 1; i < src.outer_dim; i++) {
-            if (i < src.outer_dim-1 || i*kittens::TILE_ROW_DIM<T>*2 + laneid < src.length) {
-                accum = op::template op<T>(accum, src[i][0]);
-            }
-        }
-
-        if (src.length > 32) accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 32));
-        if(src.length > 16) accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 16));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 8));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 4));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 2));
-        accum = op::template op<T>(accum, packed_shfl_down(kittens::MASK_ALL, accum, 1));
-        if constexpr (!reset) accum = op::template op<T>(accum, src_accum);
-        dst_accum = packed_shfl(kittens::MASK_ALL, accum, 0);
-    }
-}
-#endif
 
 
 /**

@@ -18,14 +18,35 @@ using _gl_QKVO = gl<bf16, -1, -1, -1, -1>;
 
 using G = kittens::group<NUM_WARPS>;
 
-template<int D, typename T=bf16, typename L=row_l> using qo_tile = rt<T, Q_BLOCK_SIZE, D, L>;
-template<int D, typename T=bf16, typename L=col_l> using qo_tile_transposed = rt<T, D, Q_BLOCK_SIZE, L>;
-template<int D, typename T=bf16, typename L=row_l> using kv_tile = rt<T, KV_BLOCK_SIZE, D, L>;
-template<int D, typename T=bf16, typename L=col_l> using kv_tile_transposed = rt<T, D, KV_BLOCK_SIZE, L>;
-template<int D, typename T=float, typename L=accum_col_l> using attn_tile = rt<T, KV_BLOCK_SIZE, Q_BLOCK_SIZE, L>;
+template<int D, typename T=bf16, typename L=row_l, typename S=rt_32x16_s> using qo_tile = rt<T, Q_BLOCK_SIZE, D, L, S>;
+template<int D, typename T=bf16, typename L=col_l, typename S=rt_16x32_s> using qo_tile_transposed = rt<T, D, Q_BLOCK_SIZE, L, S>;
+template<int D, typename T=bf16, typename L=row_l, typename S=rt_32x16_s> using kv_tile = rt<T, KV_BLOCK_SIZE, D, L, S>;
+template<int D, typename T=bf16, typename L=col_l, typename S=rt_16x32_s> using kv_tile_transposed = rt<T, D, KV_BLOCK_SIZE, L, S>;
+template<int D, typename T=float, typename L=col_l, typename S=rt_16x32_4_s> using attn_tile = rt<T, KV_BLOCK_SIZE, Q_BLOCK_SIZE, L, S>;
 
 
 /**********************************************************/
+
+
+#define MFMA_MASK 0x08
+#define VALU_MASK 0x02
+#define EXP_MASK  0x400
+
+#define SCHED_BARRIER(mask, cnt, group) __builtin_amdgcn_sched_group_barrier(mask, cnt, group)
+
+template<int Pairs, int VALU_CNT, int Group>
+__device__ __forceinline__ void sched_barrier_pairs() {
+    SCHED_BARRIER(MFMA_MASK, 1, Group);
+    SCHED_BARRIER(VALU_MASK, VALU_CNT, Group);
+    if constexpr (Pairs > 1) sched_barrier_pairs<Pairs - 1, VALU_CNT, Group>();
+}
+
+template<int Pairs, int EXP_CNT, int Group>
+__device__ __forceinline__ void sched_barrier_exp_pairs() {
+    SCHED_BARRIER(MFMA_MASK, 1, Group);
+    SCHED_BARRIER(EXP_MASK, EXP_CNT, Group);
+    if constexpr (Pairs > 1) sched_barrier_exp_pairs<Pairs - 1, EXP_CNT, Group>();
+}
 
 template <class T>
 __device__ inline uint32_t& as_u32_ref(T& v) {
@@ -52,7 +73,7 @@ __device__ inline void mask_vec2_imm(uint32_t rel_vgpr, uint32_t neg_inf_vgpr,
     x_ref = ox; y_ref = oy;
 }
 
-template<ducks::rt::accumulator_col_layout RT>
+template<ducks::rt::col_layout RT>
 __device__ inline void mask_kv_tile(RT &dst, int q_abs, int k_abs) {
     const int lane = laneid();
     const int col  = lane & 31;
@@ -109,116 +130,6 @@ __device__ inline void mask_kv_tile(RT &dst, int q_abs, int k_abs) {
     }
 }
 
-
-// template<ducks::rt::accumulator_col_layout RT>
-// __device__ inline static void mask_kv_tile(
-//     RT &dst,
-//     const int q_abs,
-//     const int k_abs
-// ) {
-//     const int lane = laneid();
-//     const int col = lane & 31;
-    
-//     const float neg_inf = kittens::base_types::constants<float>::neg_infty();
-    
-//     const int q_base = q_abs * Q_BLOCK_SIZE;
-//     const int k_base = k_abs * KV_BLOCK_SIZE;
-//     const int base_offset = k_base - q_base;
-
-//     #pragma unroll
-//     for (int i = 0; i < dst.height; ++i) {
-//         const int row_base = (i * 32) + ((lane >> 5) << 2);
-
-//         #pragma unroll
-//         for (int j = 0; j < dst.width; ++j) {
-            
-//             // Compute rel_pos ONCE for all 32 elements in this (i,j) tile
-//             int rel_pos;
-//             int q_pos  = q_abs * Q_BLOCK_SIZE + col;
-//             int rb_v   = (i * 32) + ((lane >> 5) << 2);
-//             int kb_s   = k_abs * KV_BLOCK_SIZE;
-
-//             asm volatile(
-//                 "v_add_i32 %0, %1, %2\n\t"
-//                 "v_sub_i32 %0, %3, %0\n\t"
-//                 : "=&v"(rel_pos)
-//                 : "v"(rb_v), "s"(kb_s), "v"(q_pos)
-//             );
-
-//             // Create local references to avoid repeated indexing
-//             auto& d0x = dst.tiles[i][j].data[0].x;
-//             auto& d0y = dst.tiles[i][j].data[0].y;
-//             auto& d1x = dst.tiles[i][j].data[1].x;
-//             auto& d1y = dst.tiles[i][j].data[1].y;
-//             auto& d2x = dst.tiles[i][j].data[2].x;
-//             auto& d2y = dst.tiles[i][j].data[2].y;
-//             auto& d3x = dst.tiles[i][j].data[3].x;
-//             auto& d3y = dst.tiles[i][j].data[3].y;
-//             auto& d4x = dst.tiles[i][j].data[4].x;
-//             auto& d4y = dst.tiles[i][j].data[4].y;
-//             auto& d5x = dst.tiles[i][j].data[5].x;
-//             auto& d5y = dst.tiles[i][j].data[5].y;
-//             auto& d6x = dst.tiles[i][j].data[6].x;
-//             auto& d6y = dst.tiles[i][j].data[6].y;
-//             auto& d7x = dst.tiles[i][j].data[7].x;
-//             auto& d7y = dst.tiles[i][j].data[7].y;
-
-//             asm volatile(
-//                 // r = 0,1,2,3
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 0\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 1\n\t"
-//                 "v_cndmask_b32_e64 %0, %0, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %1, %1, %17, s[70:71]\n\t"
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 2\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 3\n\t"
-//                 "v_cndmask_b32_e64 %2, %2, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %3, %3, %17, s[70:71]\n\t"
-
-//                 // r = 8,9,10,11
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 8\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 9\n\t"
-//                 "v_cndmask_b32_e64 %4, %4, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %5, %5, %17, s[70:71]\n\t"
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 10\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 11\n\t"
-//                 "v_cndmask_b32_e64 %6, %6, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %7, %7, %17, s[70:71]\n\t"
-
-//                 // r = 16,17,18,19
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 16\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 17\n\t"
-//                 "v_cndmask_b32_e64 %8, %8, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %9, %9, %17, s[70:71]\n\t"
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 18\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 19\n\t"
-//                 "v_cndmask_b32_e64 %10, %10, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %11, %11, %17, s[70:71]\n\t"
-
-//                 // r = 24,25,26,27
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 24\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 25\n\t"
-//                 "v_cndmask_b32_e64 %12, %12, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %13, %13, %17, s[70:71]\n\t"
-//                 "v_cmp_lt_i32_e64 s[68:69], %16, 26\n\t"
-//                 "v_cmp_lt_i32_e64 s[70:71], %16, 27\n\t"
-//                 "v_cndmask_b32_e64 %14, %14, %17, s[68:69]\n\t"
-//                 "v_cndmask_b32_e64 %15, %15, %17, s[70:71]\n\t"
-
-//                 : "+v"(d0x), "+v"(d0y),
-//                   "+v"(d1x), "+v"(d1y),
-//                   "+v"(d2x), "+v"(d2y),
-//                   "+v"(d3x), "+v"(d3y),
-//                   "+v"(d4x), "+v"(d4y),
-//                   "+v"(d5x), "+v"(d5y),
-//                   "+v"(d6x), "+v"(d6y),
-//                   "+v"(d7x), "+v"(d7y)
-//                 : "v"(rel_pos), "v"(neg_inf)
-//                 : "s68","s69","s70","s71"
-//             );
-//         }
-//     }
-// }
-
 /**********************************************************/
 
 
@@ -235,8 +146,8 @@ __global__ void attend_ker(const attn_globals<D> g) {
 
     extern __shared__ alignment_dummy __shm[];
     shared_allocator al((int*)&__shm[0]);
-    st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::row> (&k_smem)[2] = al.allocate<st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::row>, 2>();
-    st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::accumulator_col> (&v_smem)[2] = al.allocate<st_bf<KV_BLOCK_SIZE, ATTN_D, ducks::st_layout::accumulator_col>, 2>();
+    st_bf<KV_BLOCK_SIZE, ATTN_D, st_32x32_s> (&k_smem)[2] = al.allocate<st_bf<KV_BLOCK_SIZE, ATTN_D, st_32x32_s>, 2>();
+    st_bf<KV_BLOCK_SIZE, ATTN_D, st_8x32_s> (&v_smem)[2] = al.allocate<st_bf<KV_BLOCK_SIZE, ATTN_D, st_8x32_s>, 2>();
      
     const int head_idx = (blockIdx.x % 8) * 8 + (blockIdx.x / 8);
     const int batch_idx = blockIdx.z;
@@ -262,21 +173,21 @@ __global__ void attend_ker(const attn_globals<D> g) {
     qo_tile_transposed<D, bf16> q_reg_transposed;
     kv_tile<D, bf16> k_reg;
     kv_tile_transposed<D, bf16> k_reg_transposed;
-    kv_tile<D, bf16, accum_col_l> v_reg;
-    qo_tile_transposed<D, float, accum_col_l> o_reg;
-    attn_tile<D, float, accum_col_l> att_block[2];
-    attn_tile<D, bf16, accum_col_l> att_block_bf16;
-    typename attn_tile<D, float, accum_col_l>::row_vec max_vec, norm_vec, max_vec_prev;
 
-    using T = typename st_bf<KV_BLOCK_SIZE, ATTN_D>::dtype;
-    constexpr int bytes_per_thread = 16;
+    kv_tile<D, bf16, col_l, rt_32x32_s> v_reg;
+    qo_tile_transposed<D, float, col_l, rt_32x32_s> o_reg;
+    attn_tile<D, float, col_l, rt_32x32_s> att_block[2];
+    attn_tile<D, bf16, col_l, rt_32x32_s> att_block_bf16;
+    typename attn_tile<D, float, col_l, rt_32x32_s>::row_vec max_vec, norm_vec, max_vec_prev;
+
+    using T = typename st_bf<KV_BLOCK_SIZE, ATTN_D, st_32x32_s>::dtype;
+    constexpr int bytes_per_thread = st_32x32_s::template bytes_per_thread<T>();
     constexpr int bytes_per_memcpy = bytes_per_thread * NUM_THREADS;
     constexpr int memcpy_per_tile = KV_BLOCK_SIZE * ATTN_D * sizeof(T) / bytes_per_memcpy;
     uint32_t swizzled_offsets_V[memcpy_per_tile];
     uint32_t swizzled_offsets_K[memcpy_per_tile];
     G::prefill_swizzled_offsets<1, false>(k_smem[0], g.Kg, swizzled_offsets_K);
     G::prefill_swizzled_offsets<1, false>(v_smem[0], g.Vg, swizzled_offsets_V);
-    const lds_lane_ofs lane_offs = prefill_swizzled_offsets(k_reg, k_smem[0]);
 
     zero(o_reg);
     zero(norm_vec);
@@ -288,7 +199,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
     __builtin_amdgcn_sched_barrier(0);
     __builtin_amdgcn_s_barrier();
 
-    load(k_reg, k_smem[0], lane_offs);
+    load(k_reg, k_smem[0]);
     k_idx_buf1 = 1; 
     k_curr_idx = 0; 
     asm volatile("s_waitcnt lgkmcnt(0)");
@@ -319,7 +230,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
 
     // Load K1 and prepare for next iteration
     zero(att_block[1]);
-    load(k_reg, k_smem[1], lane_offs);
+    load(k_reg, k_smem[1]);
     G::load<1, false>(k_smem[0], g.Kg, {batch_idx, 2, head_idx_kv, 0}, swizzled_offsets_K); 
     G::load<1, false>(v_smem[1], g.Vg, {batch_idx, 1, head_idx_kv, 0}, swizzled_offsets_V);
     k_curr_idx = 1; 
@@ -340,6 +251,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mul(norm_vec, norm_vec, max_vec_prev);
         col_sum(norm_vec, att_block[0], norm_vec);
         copy(att_block_bf16, att_block[0]);
+        sched_barrier_pairs<16, 3, 2>();
         __builtin_amdgcn_sched_barrier(0);
         __builtin_amdgcn_s_barrier();
         __builtin_amdgcn_sched_barrier(0);
@@ -366,6 +278,8 @@ __global__ void attend_ker(const attn_globals<D> g) {
         col_max(max_vec, att_block[1], max_vec);
         sub_col(att_block[1], att_block[1], max_vec);
         exp2(att_block[1], att_block[1]);
+        sched_barrier_pairs<8, 6, 3>();
+        sched_barrier_exp_pairs<8, 4, 3>();
         __builtin_amdgcn_s_setprio(0);
         __builtin_amdgcn_sched_barrier(0);
         __builtin_amdgcn_s_barrier();
@@ -373,7 +287,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
     
         // Cluster 3: Loads
         G::load<1, false>(v_smem[0], g.Vg, {batch_idx, j - 1, head_idx_kv, 0}, swizzled_offsets_V);
-        load(k_reg, k_smem[0], lane_offs);
+        load(k_reg, k_smem[0]);
         k_curr_idx = k_idx_buf0;
         asm volatile("s_waitcnt lgkmcnt(0)");
         asm volatile("s_waitcnt vmcnt(4)");
@@ -390,6 +304,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mul(norm_vec, norm_vec, max_vec_prev);
         col_sum(norm_vec, att_block[1], norm_vec);
         copy(att_block_bf16, att_block[1]);
+        sched_barrier_pairs<16, 3, 4>();
         __builtin_amdgcn_sched_barrier(0);
         __builtin_amdgcn_s_barrier();
         __builtin_amdgcn_sched_barrier(0);
@@ -413,6 +328,8 @@ __global__ void attend_ker(const attn_globals<D> g) {
         col_max(max_vec, att_block[0], max_vec);
         sub_col(att_block[0], att_block[0], max_vec);
         exp2(att_block[0], att_block[0]);
+        sched_barrier_pairs<8, 6, 5>();
+        sched_barrier_exp_pairs<8, 4, 5>();
         __builtin_amdgcn_s_setprio(0);
         __builtin_amdgcn_sched_barrier(0);
         __builtin_amdgcn_s_barrier();
@@ -421,7 +338,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
         // Cluster 7: Loads
         zero(att_block[1]);
         G::load<1, false>(v_smem[1], g.Vg, {batch_idx, j, head_idx_kv, 0}, swizzled_offsets_V);
-        load(k_reg, k_smem[1], lane_offs);
+        load(k_reg, k_smem[1]);
         k_curr_idx = k_idx_buf1;
         asm volatile("s_waitcnt lgkmcnt(0)");
         asm volatile("s_waitcnt vmcnt(4)");
@@ -481,7 +398,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
     //      Load V4 into shared
     G::load<1, false>(v_smem[0], g.Vg, {batch_idx, max_num_tiles - 2, head_idx_kv, 0}, swizzled_offsets_V);
     //      Load K4 into registers
-    load(k_reg, k_smem[0], lane_offs);
+    load(k_reg, k_smem[0]);
     k_curr_idx = k_idx_buf0;
     asm volatile("s_waitcnt lgkmcnt(0)");
     asm volatile("s_waitcnt vmcnt(4)");
@@ -533,7 +450,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
     //      Load V5 into shared
     G::load<1, false>(v_smem[1], g.Vg, {batch_idx, max_num_tiles - 1, head_idx_kv, 0}, swizzled_offsets_V);
     //      Load K5 into registers
-    load(k_reg, k_smem[1], lane_offs);
+    load(k_reg, k_smem[1]);
     k_curr_idx = k_idx_buf1;
     asm volatile("s_waitcnt lgkmcnt(0)");
     asm volatile("s_waitcnt vmcnt(2)");
@@ -608,7 +525,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
         __builtin_amdgcn_s_barrier();
     }
 
-    qo_tile<D, float, accum_row_l> o_reg_transposed;
+    qo_tile<D, float, row_l, rt_32x32_s> o_reg_transposed;
     swap_layout_and_transpose(o_reg_transposed, o_reg);
     store<1>(g.Og, o_reg_transposed, {batch_idx, tile_idx, head_idx, 0});
 

@@ -74,18 +74,7 @@ __device__ inline static void load(RT &dst, const ST &src) {
                             const int register_col = jj * register_subtiles_per_shared_subtile_row + j;
 
                             if constexpr (std::is_same_v<U2, bf16_2>) {
-                                // Special handling for 32x16 and stride == 8
-                                if constexpr (RT::base_tile_stride == 8 && std::is_same_v<typename ST::shape, st_32x16_s>) {
-                                    asm volatile(
-                                        "ds_read_b64 %0, %2 offset:%4\n"
-                                        "ds_read_b64 %1, %3 offset:%4\n"
-                                        : "=v"(*reinterpret_cast<float2*>(&dst.tiles[register_row][register_col].data[idx])),
-                                          "=v"(*reinterpret_cast<float2*>(&dst.tiles[register_row][register_col].data[idx + 2]))
-                                        : "v"(addr), "v"(next_addr), "i"(offset)
-                                        : "memory"
-                                    );
-                                // Use ds_read_b128 for stride == 8, dtype == bf16
-                                } else if constexpr (RT::base_tile_stride == 8) {
+                                if constexpr (RT::base_tile_stride == 8) {
                                     asm volatile(
                                         "ds_read_b128 %0, %1 offset:%2\n"
                                         : "=v"(*reinterpret_cast<float4*>(&dst.tiles[register_row][register_col].data[idx]))

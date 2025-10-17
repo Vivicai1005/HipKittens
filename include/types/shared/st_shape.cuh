@@ -145,9 +145,7 @@ struct st_32x16 {
 
     template<typename _T>
     static constexpr int bytes_per_thread() {
-        if constexpr (sizeof(_T) == 2) {
-            return 4;
-        } else if constexpr (sizeof(_T) == 4) {
+        if constexpr (sizeof(_T) == 2 || sizeof(_T) == 4) {
             return 16;
         } else {
             static_assert(false, "Unsupported type");
@@ -162,9 +160,8 @@ struct st_32x16 {
         const uint32_t offset = sizeof(T)*(r*cols + c);
 
         if constexpr (sizeof(T) == 2) {
-            const int first_swizzle = ((offset % 512) >> 7) << 3;
-            const int second_swizzle = ((offset % 1024) >> 9) << 4;
-            const int swizzled_offset = offset ^ first_swizzle ^ second_swizzle;
+            const int swizzle = ((offset % 1024) >> 9) << 4;
+            const int swizzled_offset = offset ^ swizzle;
             return swizzled_offset;
         } else {
             static_assert(false, "Unsupported type");

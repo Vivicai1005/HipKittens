@@ -444,7 +444,7 @@ __global__ void attend_ker(const attn_globals<D> g) {
     load(v_reg, v_smem[1]);
     if constexpr (causal) {
         const int kv_end_pos = (max_num_tiles - 1) * KV_BLOCK_SIZE;
-        if (q_start_pos < kv_end_pos) {  // Only mask if needed
+        if (__builtin_expect(q_start_pos < kv_end_pos, 1)) {  // Only mask if needed
             mask_kv_tile(att_block[0], tile_idx, max_num_tiles - 2, neg_inf_v, lane);
         }
     }

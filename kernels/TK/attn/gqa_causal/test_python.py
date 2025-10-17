@@ -20,8 +20,8 @@ D = 128
 causal = True
 dtype = torch.bfloat16
 
-num_warmup = 50
-num_iters = 60
+num_warmup = 500
+num_iters = 100
 
 
 def flops(batch, seqlen, nheads, headdim, causal, mode="fwd"):
@@ -75,14 +75,15 @@ for _ in range(num_iters):
 print(f"{out_ref.dtype=}")
 avg_time_ref = sum(timings_ref) / len(timings_ref)
 eff_ref = efficiency(flops_ref, avg_time_ref)
+print(f"{out_ref.dtype=}, {lse_ref.dtype=}")
 print(f"AITER (AMD) reference average execution time: {avg_time_ref:.4f} ms")
 print(f"AITER (AMD) reference performance: {eff_ref:.2f} TFLOPS for {B=} {H=} {N=} {D=} {causal=}.\n")
 
 
 # Kernel matmul
+out = torch.zeros(B, N, H, D, dtype=dtype, device='cuda', requires_grad=True)
+lse = torch.zeros(B, H, 1, N, dtype=torch.float32, device='cuda', requires_grad=True)
 for _ in range(num_warmup):
-    out = torch.zeros(B, N, H, D, dtype=dtype, device='cuda', requires_grad=True)
-    lse = torch.zeros(B, H, 1, N, dtype=torch.float32, device='cuda', requires_grad=True)
     q = torch.randn(B, N, H, D, dtype=dtype, device='cuda', requires_grad=True)
     k = torch.randn(B, N, H_KV, D, dtype=dtype, device='cuda', requires_grad=True)
     v = torch.randn(B, N, H_KV, D, dtype=dtype, device='cuda', requires_grad=True)

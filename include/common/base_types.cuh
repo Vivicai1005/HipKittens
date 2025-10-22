@@ -242,23 +242,23 @@ template<> struct convertor<float2, bf16_2> {
         return 	__bfloat1622float2(u);
     }
 };
-template<> struct convertor<bf16_2, float2> {
-    static __host__ __device__ inline bf16_2 convert(const float2 &u) {
-        return bf16_2{
-            std::bit_cast<bf16>(static_cast<uint16_t>(std::bit_cast<uint32_t>(u.x) >> 16)),
-            std::bit_cast<bf16>(static_cast<uint16_t>(std::bit_cast<uint32_t>(u.y) >> 16))
-        };
-    }
-};
 // template<> struct convertor<bf16_2, float2> {
 //     static __host__ __device__ inline bf16_2 convert(const float2 &u) {
-//         uint32_t result;
-//         asm volatile("v_cvt_pk_bf16_f32 %0, %1, %2" 
-//                      : "=v"(result) 
-//                      : "v"(u.x), "v"(u.y));
-//         return *reinterpret_cast<bf16_2*>(&result);
+//         return bf16_2{
+//             std::bit_cast<bf16>(static_cast<uint16_t>(std::bit_cast<uint32_t>(u.x) >> 16)),
+//             std::bit_cast<bf16>(static_cast<uint16_t>(std::bit_cast<uint32_t>(u.y) >> 16))
+//         };
 //     }
 // };
+template<> struct convertor<bf16_2, float2> {
+    static __host__ __device__ inline bf16_2 convert(const float2 &u) {
+        uint32_t result;
+        asm volatile("v_cvt_pk_bf16_f32 %0, %1, %2" 
+                     : "=v"(result) 
+                     : "v"(u.x), "v"(u.y));
+        return *reinterpret_cast<bf16_2*>(&result);
+    }
+};
 
 
 template<> struct convertor<float, half> {

@@ -121,9 +121,12 @@ template<int H, int W, int NW> std::string generate_test_name(std::string test_i
     return label;
 }
 template <typename T> concept integral_wrapper = std::is_integral_v<decltype(T::value)>;
-template<int H, int W, int NW, integral_wrapper _K> std::string generate_test_name(std::string test_id) {
+template<kittens::ducks::rt_shape::all RT_SHAPE, int H, int W, int NW, integral_wrapper _K> std::string generate_test_name(std::string test_id) {
     constexpr int K = _K::value;
     std::string label = test_id+"_["+std::to_string(H)+"x"+std::to_string(W)+"]x"+std::to_string(K);
+    if constexpr (std::is_same_v<RT_SHAPE, kittens::ducks::rt_shape::rt_32x32>) label += "_[mfma_32x32x16]";
+    else if constexpr (std::is_same_v<RT_SHAPE, kittens::ducks::rt_shape::rt_16x16>) label += "_[mfma_16x16x32]";
+    else static_assert(false, "Unknown shape");
     if constexpr (NW > 1) {
         label += "_["+std::to_string(NW)+"warps]";
     }

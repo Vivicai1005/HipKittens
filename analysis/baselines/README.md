@@ -102,17 +102,17 @@ We picked the best of these options for each dimension:
 
 # https://github.com/ROCm/composable_kernel/tree/develop/example/ck_tile/03_gemm
 # *NOTE* We can run with `bf16` or `fp8` dtypes.
-./bin/tile_example_gemm_basic -prec=fp8 -m=1024 -n=1024 -k=1024 -warmup=500 -repeat=100 -v=1   
-./bin/tile_example_gemm_basic -prec=fp8 -m=2048 -n=2048 -k=2048 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_basic -prec=fp8 -m=4096 -n=4096 -k=4096 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_basic -prec=fp8 -m=8192 -n=8192 -k=8192 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_basic -prec=fp8 -m=16384 -n=16384 -k=16384 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_basic -prec=fp16 -m=1024 -n=1024 -k=1024 -warmup=500 -repeat=100 -v=1   
+./bin/tile_example_gemm_basic -prec=fp16 -m=2048 -n=2048 -k=2048 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_basic -prec=fp16 -m=4096 -n=4096 -k=4096 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_basic -prec=fp16 -m=8192 -n=8192 -k=8192 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_basic -prec=fp16 -m=16384 -n=16384 -k=16384 -warmup=500 -repeat=100 -v=1
 
-./bin/tile_example_gemm_universal -prec=fp8 -m=1024 -n=1024 -k=1024 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_universal -prec=fp8 -m=2048 -n=2048 -k=2048 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_universal -prec=fp8 -m=4096 -n=4096 -k=4096 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_universal -prec=fp8 -m=8192 -n=8192 -k=8192 -warmup=500 -repeat=100 -v=1
-./bin/tile_example_gemm_universal -prec=fp8 -m=16384 -n=16384 -k=16384 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_universal -prec=fp16 -m=1024 -n=1024 -k=1024 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_universal -prec=fp16 -m=2048 -n=2048 -k=2048 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_universal -prec=fp16 -m=4096 -n=4096 -k=4096 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_universal -prec=fp16 -m=8192 -n=8192 -k=8192 -warmup=500 -repeat=100 -v=1
+./bin/tile_example_gemm_universal -prec=fp16 -m=16384 -n=16384 -k=16384 -warmup=500 -repeat=100 -v=1
 ```
 
 **Low precision GEMM**
@@ -159,11 +159,11 @@ python baselines/attn/triton_gemm_v03.py
 
 BF16 GEMM:
 ```bash
-hipblaslt-bench --api_method c --stride_a 0 --stride_b 0 --stride_c 0 --stride_d 0 --alpha 1.000000 --beta 0.000000 --transA T --transB N --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --compute_type f32_r  --rotating 512 --iters 100 --cold_iters 500 -m 1024 -n 1024 -k 1024
-hipblaslt-bench --api_method c --stride_a 0 --stride_b 0 --stride_c 0 --stride_d 0 --alpha 1.000000 --beta 0.000000 --transA T --transB N --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --compute_type f32_r --rotating 512 --iters 100 --cold_iters 500 -m 2048 -n 2048 -k 2048
-hipblaslt-bench --api_method c --stride_a 0 --stride_b 0 --stride_c 0 --stride_d 0 --alpha 1.000000 --beta 0.000000 --transA T --transB N --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --compute_type f32_r --rotating 512 --iters 100 --cold_iters 500 -m 4096 -n 4096 -k 4096
-hipblaslt-bench --api_method c --stride_a 0 --stride_b 0 --stride_c 0 --stride_d 0 --alpha 1.000000 --beta 0.000000 --transA T --transB N --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --compute_type f32_r --rotating 512 --iters 100 --cold_iters 500 -m 8192 -n 8192 -k 8192
-hipblaslt-bench --api_method c --stride_a 0 --stride_b 0 --stride_c 0 --stride_d 0 --alpha 1.000000 --beta 0.000000 --transA T --transB N --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --compute_type f32_r --rotating 512 --iters 100 --cold_iters 500 -m 16384 -n 16384 -k 16384
+hipblaslt-bench --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --rotating 512 --iters 100 --cold_iters 500 -m 1024 -n 1024 -k 1024
+hipblaslt-bench --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --rotating 512 --iters 100 --cold_iters 500 -m 2048 -n 2048 -k 2048
+hipblaslt-bench --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --rotating 512 --iters 100 --cold_iters 500 -m 4096 -n 4096 -k 4096
+hipblaslt-bench --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --rotating 512 --iters 100 --cold_iters 500 -m 8192 -n 8192 -k 8192
+hipblaslt-bench --batch_count 1 --a_type bf16_r --b_type bf16_r --c_type bf16_r --d_type bf16_r --rotating 512 --iters 100 --cold_iters 500 -m 16384 -n 16384 -k 16384
 ```
 
 FP8 GEMM:

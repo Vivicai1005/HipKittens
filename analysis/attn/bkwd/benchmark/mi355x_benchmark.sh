@@ -6,7 +6,7 @@
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=1024
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=1024
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -20,7 +20,7 @@ python test_python.py 16 1024 64 8 0 mi355x_gqa_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=2048
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=2048
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -34,7 +34,7 @@ python test_python.py 16 2048 64 8 0 mi355x_gqa_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=4096
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=4096
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -48,7 +48,7 @@ python test_python.py 16 4096 64 8 0 mi355x_gqa_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=8192
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=8192
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -62,7 +62,7 @@ python test_python.py 16 8192 64 8 0 mi355x_gqa_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=15 ATTN_H=64 ATTN_H_KV=8 ATTN_N=16384
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=15 ATTN_H=64 ATTN_H_KV=8 ATTN_N=16384
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -77,7 +77,7 @@ python test_python.py 15 16384 64 8 0 mi355x_gqa_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=1024
+make SRC=attn_bkwd_non_causal_HBN.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=1024
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -91,7 +91,7 @@ python test_python.py 16 1024 16 16 0 mi355x_mha_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=2048
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=2048
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -105,7 +105,7 @@ python test_python.py 16 2048 16 16 0 mi355x_mha_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=4096
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=4096
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -119,7 +119,7 @@ python test_python.py 16 4096 16 16 0 mi355x_mha_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=8192
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=8192
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -133,7 +133,7 @@ python test_python.py 16 8192 16 16 0 mi355x_mha_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_non_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=16384
+make SRC=attn_bkwd_non_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=16384
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -151,7 +151,7 @@ python test_python.py 16 16384 16 16 0 mi355x_mha_bkwd_non_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=1024
+make SRC=attn_bkwd_causal_HBN.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=1024
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -165,7 +165,7 @@ python test_python.py 16 1024 64 8 1 mi355x_gqa_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=2048
+make SRC=attn_bkwd_causal_HBN.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=2048
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -179,7 +179,7 @@ python test_python.py 16 2048 64 8 1 mi355x_gqa_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=4096
+make SRC=attn_bkwd_causal_HBN.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=4096
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -193,7 +193,7 @@ python test_python.py 16 4096 64 8 1 mi355x_gqa_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=8192
+make SRC=attn_bkwd_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=64 ATTN_H_KV=8 ATTN_N=8192
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -207,7 +207,7 @@ python test_python.py 16 8192 64 8 1 mi355x_gqa_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=15 ATTN_H=64 ATTN_H_KV=8 ATTN_N=16384
+make SRC=attn_bkwd_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=15 ATTN_H=64 ATTN_H_KV=8 ATTN_N=16384
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -222,7 +222,7 @@ python test_python.py 15 16384 64 8 1 mi355x_gqa_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=1024
+make SRC=attn_bkwd_causal_HBN.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=1024
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -236,7 +236,7 @@ python test_python.py 16 1024 16 16 1 mi355x_mha_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=2048
+make SRC=attn_bkwd_causal_HBN.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=2048
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -250,7 +250,7 @@ python test_python.py 16 2048 16 16 1 mi355x_mha_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=4096
+make SRC=attn_bkwd_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=4096
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -264,7 +264,7 @@ python test_python.py 16 4096 16 16 1 mi355x_mha_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=8192
+make SRC=attn_bkwd_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=8192
 
 cd $THUNDERKITTENS_ROOT
 git checkout port
@@ -278,7 +278,7 @@ python test_python.py 16 8192 16 16 1 mi355x_mha_bkwd_causal.json
 cd $THUNDERKITTENS_ROOT
 git checkout asm_port
 cd $THUNDERKITTENS_ROOT/../analysis/attn/bkwd/benchmark
-make SRC=attn_bkwd_causal.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=16384
+make SRC=attn_bkwd_causal_HNB.cpp TARGET=tk_kernel_bkwd ATTN_B=16 ATTN_H=16 ATTN_H_KV=16 ATTN_N=16384
 
 cd $THUNDERKITTENS_ROOT
 git checkout port

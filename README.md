@@ -6,15 +6,15 @@ HK uses:
 1. Tile primitives: sized according to the tensor core units. Tile memory ops are coalesced, bank conflict free, and eagerly use tensor core layouts. We focus on minimizing address computation costs. 
 2. Python-inspired functions: bulk compute functions that operate over tiles. These are lightweight, wrapping assembly and HIP.
 3. Asynchronous loads/stores: hide latencies and address generation using direct buffer loads to shared memory.
-4. Scheduling and overlapping: we show two core patterns for overlapping compute and memory --- 8-wave ping pong and 4-wave interelave -- that appear across kernels.
+4. Scheduling and overlapping: we show two core patterns for overlapping compute and memory -- 8-wave ping pong and 4-wave interelave -- that appear across kernels.
 
 
 <div align="center" >
-    <img src="assets/hipkittens.png" height=350 alt="HipKittens logo" style="margin-bottom:px"/> 
+    <img src="assets/hipkittens.png" height=250 alt="HipKittens logo" style="margin-bottom:px"/> 
 </div>
 
 <br>
-<br>s
+<br>
 
 ## Setup
 

@@ -1,32 +1,27 @@
-### AMD Instinct MI325X (gfx942) 
-
-Run command:
-```bash
-make clean && make && python test_python.py
 ```
+root@gpu-10:/workdir/AMD-benchmarking-harness/kernels/TK/bf16fp32/mi325x/256_256_64_16# python test_python.py
+src: 256_256_64_16.cpp
+Warning: tk_kernel.cpython-313-x86_64-linux-gnu.so not found at /workdir/AMD-benchmarking-harness/kernels/TK/bf16fp32/mi325x/256_256_64_16/tk_kernel.cpython-313-x86_64-linux-gnu.so, skipping.
+C_ref.dtype=torch.bfloat16
+PyTorch reference average execution time: 1.3800 ms
+PyTorch reference performance: 796.75 TFLOPS for 8192x8192 matrix multiplication.
 
-Hardware Overview:
+C.dtype=torch.bfloat16
+Average execution time: 1.4396 ms
+Performance: 763.74 TFLOPS for 8192x8192 matrix multiplication.
 
-| Component                    | Value                          | Notes                                              |
-|-----------------------------|--------------------------------|----------------------------------------------------|
-| Compute Units (CUs)         | 304                            | More than MI250/MI300 — high parallelism           |
-| SIMDs per CU                | 4                              | Each SIMD handles 1 wavefront                      |
-| Wavefront Size              | 64 threads                     | Fixed per SIMD                                     |
-| Max Waves per CU            | 32                             | Controls concurrency                               |
-| Max Threads per CU          | 2048                           | 32 waves × 64 threads                              |
-| Max Workgroup Size          | 1024 threads                   | Max threads per kernel dispatch                    |
-| VGPRs per SIMD              | 65,536 (32-bit)                | 256 KB per SIMD                                    |
-| Register File per CU        | 4 × 256 KB = 1 MB              | 4 SIMDs                                            |
-| Register File per GPU       | 304 × 1 MB = 304 MB            | Massive register footprint                         |
-| Shared Memory (LDS) per CU  | 64 KB                          | Per workgroup                                      |
-| L1 Cache                    | 32 KB                          | Per CU                                             |
-| L2 Cache                    | 4 MB                           | Shared                                             |
-| L3 Cache                    | 256 MB                         | HBM-attached                                       |
-| Max VGPRs per Thread        | 256 (typical)                  | Set by compiler                                    |
-| SGPRs per SIMD              | ~800–1024                      | Scalar register file                               |
-| Max Clock Speed             | 2100 MHz                       | From `rocminfo`                                    |
-| Memory Bandwidth            | ~5.2 TB/s                      | With HBM3 (if installed with 128 GB)               |
-| ISA Name                    | amdgcn-amd-amdhsa--gfx942      | Use `--offload-arch=gfx942`                        |
+Max error between kernel and reference: 0.03125
+Max error: 0.03125
+Mean error: 0.0020266701467335224
+Number of large errors (>0.1): 0
 
+diff[:32, :32].max() tensor(0.0156, device='cuda:0')
+diff[:32, 32:64].max() tensor(0.0156, device='cuda:0')
+diff[32:64, :32].max() tensor(0.0156, device='cuda:0')
+diff[32:64, 32:64].max() tensor(0.0156, device='cuda:0')
 
-
+diff[7168:7232, 7168:7232].max() tensor(0.0156, device='cuda:0')
+diff[7232:7296, 7232:7296].max() tensor(0.0156, device='cuda:0')
+diff[7296:7360, 7296:7360].max() tensor(0.0156, device='cuda:0')
+diff[7360:7424, 7360:7424].max() tensor(0.0156, device='cuda:0')
+```

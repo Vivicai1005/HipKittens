@@ -64,20 +64,21 @@ __device__ inline void exp2(rt_base<T, layout, shape> &dst, const rt_base<T, lay
 
 constexpr float RESCALE_THRESHOLD = 8.0f;  // Only rescale if scale factor < 2^-4
 
-template<typename T>
-__device__ static inline float get_max_diff(const T& vec_prev, const T& vec_new) {
-    float max_diff = 0.0f;
+template<typename RV>
+__device__ __forceinline__ int rv_all_below(const RV& prev, const RV& cur, float T) {
+    int ok = 1;
     #pragma unroll
-    for(int i = 0; i < vec_prev.outer_dim; i++) {
-        #pragma unroll
-        for(int j = 0; j < vec_prev.inner_dim; j++) {
-            float diff = vec_prev[i][j] - vec_new[i][j];
-            max_diff = fmaxf(max_diff, diff);
+    for (int o = 0; o < RV::outer_dim; ++o) {
+        for (int i = 0; i < RV::inner_dim; ++i) {
+            ok &= (float(cur.data[o][i]) - float(prev.data[o][i]) <= T);
         }
     }
-    return max_diff;
+    return ok;  // 1 or 0, per lane
 }
-
+// Wave-uniform: true iff EVERY lane says "all below"
+__device__ __forceinline__ int wave_all_ok(int lane_ok) {
+    return __all(lane_ok);  // 1 fast vote; no ds_bpermute ladder
+}
 
 template<int D, typename T=bf16, typename L=row_l, typename S=rt_32x16_s> using qo_tile = rt<T, Q_BLOCK_SIZE, D, L, S>;
 template<int D, typename T=bf16, typename L=col_l, typename S=rt_16x32_s> using qo_tile_transposed = rt<T, D, Q_BLOCK_SIZE, L, S>;
@@ -220,6 +221,8 @@ __global__ void attend_ker(const attn_globals<D> g) {
     __builtin_amdgcn_sched_barrier(0);
     __builtin_amdgcn_s_barrier();
 
+    int pending_scale = 0;
+
 
     // hot loop
     #pragma unroll 2
@@ -231,7 +234,9 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mma_AtB(att_block[1], k_reg_transposed, q_reg_transposed, att_block[1]);
         //      Finish softmax for QK0
         exp2(att_block[0].tiles[1][0], att_block[0].tiles[1][0]);
-        mul(norm_vec, norm_vec, scale_vec);
+        if (pending_scale) {
+            mul(norm_vec, norm_vec, scale_vec);
+        }
         col_sum(norm_vec, att_block[0], norm_vec);
         copy(att_block_bf16, att_block[0]);
         att_block_bf16_in = *reinterpret_cast<attn_tile<D, bf16, col_l, rt_16x32_4_s>*>(&att_block_bf16);
@@ -260,15 +265,18 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mma_AtB(o_reg, subtile_inplace<16>(v_reg, 0), subtile_inplace<16>(att_block_bf16_in, 0), o_reg);
         //      Partial softmax for QK1
         col_max(max_vec, att_block[1], max_vec_prev);
-        float max_scale_diff = get_max_diff(max_vec_prev, max_vec);
         sched_barrier_pairs<4, 5, 2>();
-        if (max_scale_diff < RESCALE_THRESHOLD) {
-            copy(max_vec, max_vec_prev); 
+        int lane_ok = rv_all_below(max_vec_prev, max_vec, RESCALE_THRESHOLD);
+        int all_ok  = wave_all_ok(lane_ok);
+        if (__builtin_expect(all_ok, 1)) {
+            copy(max_vec, max_vec_prev);
+            pending_scale = 0;
         } else {
-            sub(scale_vec, max_vec_prev, max_vec);
-            copy(max_vec_prev, max_vec);
+            sub(scale_vec, max_vec_prev, max_vec);   // diff = prev - new
             exp2(scale_vec, scale_vec);
             mul_col(o_reg, o_reg, scale_vec);
+            copy(max_vec_prev, max_vec);
+            pending_scale = 1;
         }
         mma_AtB(o_reg, subtile_inplace<16>(v_reg, 1), subtile_inplace<16>(att_block_bf16_in, 1), o_reg);
         mma_AtB(o_reg, subtile_inplace<16>(v_reg, 2), subtile_inplace<16>(att_block_bf16_in, 2), o_reg);
@@ -300,7 +308,9 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mma_AtB(att_block[0], k_reg_transposed, q_reg_transposed, att_block[0]);
         //      Finish softmax for QK1
         exp2(att_block[1].tiles[1][0], att_block[1].tiles[1][0]);
-        mul(norm_vec, norm_vec, scale_vec);
+        if (pending_scale) {
+            mul(norm_vec, norm_vec, scale_vec);
+        }
         col_sum(norm_vec, att_block[1], norm_vec);
         copy(att_block_bf16, att_block[1]);
         att_block_bf16_in = *reinterpret_cast<attn_tile<D, bf16, col_l, rt_16x32_4_s>*>(&att_block_bf16);
@@ -327,15 +337,18 @@ __global__ void attend_ker(const attn_globals<D> g) {
         mma_AtB(o_reg, subtile_inplace<16>(v_reg, 0), subtile_inplace<16>(att_block_bf16_in, 0), o_reg);
         //      Partial softmax for QK2
         col_max(max_vec, att_block[0], max_vec_prev);
-        max_scale_diff = get_max_diff(max_vec_prev, max_vec);
         sched_barrier_pairs<4, 5, 4>();
-        if (max_scale_diff < RESCALE_THRESHOLD) {
-            copy(max_vec, max_vec_prev);  // Revert to old max
+        lane_ok = rv_all_below(max_vec_prev, max_vec, RESCALE_THRESHOLD);
+        all_ok  = wave_all_ok(lane_ok);
+        if (__builtin_expect(all_ok, 1)) {
+            copy(max_vec, max_vec_prev);
+            pending_scale = 0;
         } else {
-            sub(scale_vec, max_vec_prev, max_vec);
-            copy(max_vec_prev, max_vec);
+            sub(scale_vec, max_vec_prev, max_vec);   // diff = prev - new
             exp2(scale_vec, scale_vec);
             mul_col(o_reg, o_reg, scale_vec);
+            copy(max_vec_prev, max_vec);
+            pending_scale = 1;
         }
         mma_AtB(o_reg, subtile_inplace<16>(v_reg, 1), subtile_inplace<16>(att_block_bf16_in, 1), o_reg);
         mma_AtB(o_reg, subtile_inplace<16>(v_reg, 2), subtile_inplace<16>(att_block_bf16_in, 2), o_reg);

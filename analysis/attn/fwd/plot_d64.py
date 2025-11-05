@@ -91,7 +91,7 @@ def process_data(data_list):
     return values, oom_indices
 
 
-for device in ['mi300x', 'mi325x', 'mi350x', 'mi355x']:
+for device in ['mi355x']:
 
     for setting in ['d64_mha_causal_fwd', 'd64_mha_non_causal_fwd', 'd64_gqa_causal_fwd', 'd64_gqa_non_causal_fwd']:
 
@@ -122,19 +122,6 @@ for device in ['mi300x', 'mi325x', 'mi350x', 'mi355x']:
         elif setting == 'd64_gqa_non_causal_fwd' and device == 'mi355x':
             torch_tflops = [mi355x_gqa_baselines_non_causal['torch'][str(size)] for size in matrix_sizes]
             ck_tflops = [mi355x_gqa_baselines_non_causal['ck'][str(size)] for size in matrix_sizes]
-
-        elif setting == 'd64_mha_causal_fwd' and device == 'mi350x':
-            torch_tflops = [mi350x_mha_baselines_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_mha_baselines_causal['ck'][str(size)] for size in matrix_sizes]
-        elif setting == 'd64_mha_non_causal_fwd' and device == 'mi350x':
-            torch_tflops = [mi350x_mha_baselines_non_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_mha_baselines_non_causal['ck'][str(size)] for size in matrix_sizes]
-        elif setting == 'd64_gqa_causal_fwd' and device == 'mi350x':
-            torch_tflops = [mi350x_gqa_baselines_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_gqa_baselines_causal['ck'][str(size)] for size in matrix_sizes]
-        elif setting == 'd64_gqa_non_causal_fwd' and device == 'mi350x':
-            torch_tflops = [mi350x_gqa_baselines_non_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_gqa_baselines_non_causal['ck'][str(size)] for size in matrix_sizes]
             
         # Process data to separate OOM values
         torch_vals, torch_oom = process_data(torch_tflops) if torch_tflops else ([], [])

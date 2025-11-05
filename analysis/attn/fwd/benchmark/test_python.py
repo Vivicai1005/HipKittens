@@ -10,7 +10,6 @@ import aiter
 
 torch.manual_seed(0)
 random.seed(0)
-torch.cuda.set_device(7)
 
 torch.set_printoptions(
     precision=3,        # decimals
@@ -125,7 +124,7 @@ print(f"Average execution time: {avg_time:.4f} ms")
 print(f"Performance: {eff:.2f} TFLOPS for {N}x{N} matrix multiplication.\n")
 
 # Compare against reference
-num_print = 16
+num_print = 8
 print(f"\n TK vs AITER comparison:")
 print("\nO outputs:")
 print("TK: ", out[0, 0, :num_print, 0], "Max:", out.max().item())

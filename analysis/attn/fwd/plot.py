@@ -223,7 +223,7 @@ def process_data(data_list):
     return values, oom_indices
 
 
-for device in ['mi300x', 'mi325x', 'mi350x', 'mi355x']:
+for device in ['mi355x']:
 
     for setting in ['mha_causal_fwd', 'mha_non_causal_fwd', 'gqa_causal_fwd', 'gqa_non_causal_fwd']:
 
@@ -259,23 +259,6 @@ for device in ['mi300x', 'mi325x', 'mi350x', 'mi355x']:
             triton_tflops = [mi355x_gqa_baselines_non_causal['triton'][str(size)] for size in matrix_sizes]
             torch_tflops = [mi355x_gqa_baselines_non_causal['torch'][str(size)] for size in matrix_sizes]
             ck_tflops = [mi355x_gqa_baselines_non_causal['ck'][str(size)] for size in matrix_sizes]
-
-        elif setting == 'mha_causal_fwd' and device == 'mi350x':
-            triton_tflops = [mi350x_mha_baselines_causal['triton'][str(size)] for size in matrix_sizes]
-            torch_tflops = [mi350x_mha_baselines_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_mha_baselines_causal['ck'][str(size)] for size in matrix_sizes]
-        elif setting == 'mha_non_causal_fwd' and device == 'mi350x':
-            triton_tflops = [mi350x_mha_baselines_non_causal['triton'][str(size)] for size in matrix_sizes]
-            torch_tflops = [mi350x_mha_baselines_non_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_mha_baselines_non_causal['ck'][str(size)] for size in matrix_sizes]
-        elif setting == 'gqa_causal_fwd' and device == 'mi350x':
-            triton_tflops = [mi350x_gqa_baselines_causal['triton'][str(size)] for size in matrix_sizes]
-            torch_tflops = [mi350x_gqa_baselines_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_gqa_baselines_causal['ck'][str(size)] for size in matrix_sizes]
-        elif setting == 'gqa_non_causal_fwd' and device == 'mi350x':
-            triton_tflops = [mi350x_gqa_baselines_non_causal['triton'][str(size)] for size in matrix_sizes]
-            torch_tflops = [mi350x_gqa_baselines_non_causal['torch'][str(size)] for size in matrix_sizes]
-            ck_tflops = [mi350x_gqa_baselines_non_causal['ck'][str(size)] for size in matrix_sizes]
             
         # Process data to separate OOM values
         triton_vals, triton_oom = process_data(triton_tflops) if triton_tflops else ([], [])
@@ -360,7 +343,7 @@ for device in ['mi300x', 'mi325x', 'mi350x', 'mi355x']:
         ax.set_ylim(0, max_tflops * 1.15)
         ax.set_xlabel('Sequence Length', fontsize=16)
         ax.set_ylabel('Performance (TFLOPS)', fontsize=16)
-        ax.set_title(f'{attn_type} {causal_mode} Forward Performance Comparison {device.upper()}', fontsize=16)
+        ax.set_title(f'(D=128) {attn_type} {causal_mode} Forward Performance Comparison {device.upper()}', fontsize=16)
         ax.set_xticks(x)
         ax.set_xticklabels(matrix_sizes, fontsize=16)
         ax.tick_params(axis='y', labelsize=16)

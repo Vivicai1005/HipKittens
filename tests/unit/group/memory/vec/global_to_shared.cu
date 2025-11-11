@@ -39,6 +39,7 @@ void group::memory::vec::global_to_shared::tests(test_data &results) {
     using DEFAULT_ST_SHAPE = kittens::ducks::st_shape::st_16x16;
     using DEFAULT_RT_SHAPE = kittens::ducks::rt_shape::rt_16x16;
     sweep_gmem_type_1d<vec_load_store, DEFAULT_RT_SHAPE, DEFAULT_ST_SHAPE, SIZE, 2>::run(results);
+    sweep_gmem_type_1d<vec_load_store, DEFAULT_RT_SHAPE, DEFAULT_ST_SHAPE, SIZE, 3>::run(results);
     sweep_gmem_type_1d<vec_load_store, DEFAULT_RT_SHAPE, DEFAULT_ST_SHAPE, SIZE, 4>::run(results);
     sweep_gmem_type_1d<vec_load_store, DEFAULT_RT_SHAPE, DEFAULT_ST_SHAPE, SIZE, 8>::run(results);
 }

@@ -7,6 +7,8 @@ struct vec_load_store {
     using dtype = T;
     template<typename RT_SHAPE, typename ST_SHAPE, int S, int NW, kittens::ducks::rv_layout::all L> using valid = std::bool_constant<
         (NW == 1 && S<=64)  
+        && S*RT_SHAPE::cols*sizeof(T) <= kittens::MAX_SHARED_MEMORY
+        && (S*RT_SHAPE::cols*sizeof(T)) % (kittens::WARP_THREADS * 4) == 0
     >; // this is warp-level
     static inline const std::string test_identifier = std::is_same_v<dtype, kittens::bf16> ? "shared_reg_vec_loadstore_gmem=bf16" :
                                                       std::is_same_v<dtype, kittens::half> ? "shared_reg_vec_loadstore_gmem=half" :

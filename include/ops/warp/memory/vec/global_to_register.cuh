@@ -61,6 +61,8 @@ __device__ inline static void load(RV &dst, const GL &src, const COORD &idx) {
     }
     else if constexpr (std::is_same_v<typename RV::layout, naive_l>) {
         const int offset = laneid * RV::inner_dim;
+        if (offset >= RV::length) return;
+
         constexpr int inner_dim_bytes = RV::inner_dim * sizeof(U);
         // Use buffer_load_dwordx4
         if constexpr (inner_dim_bytes % 16 == 0) {
@@ -115,11 +117,9 @@ __device__ inline static void load(RV &dst, const GL &src, const COORD &idx) {
             }
         // fall back to direct load
         } else {
-            if (offset < dst.length) {
             #pragma unroll
-                for (int i = 0; i < RV::inner_dim; i++) {
-                    dst[0][i] = base_types::convertor<T, U>::convert(src_ptr[offset + i]);
-                }
+            for (int i = 0; i < RV::inner_dim; i++) {
+                dst[0][i] = base_types::convertor<T, U>::convert(src_ptr[offset + i]);
             }
         }
 
@@ -175,6 +175,8 @@ __device__ inline static void store(const GL &dst, const RV &src, const COORD &i
     }
     else if constexpr (std::is_same_v<typename RV::layout, naive_l>) {
         const int offset = laneid * src.inner_dim;
+        if (offset >= src.length) return;
+
         constexpr int inner_dim_bytes = RV::inner_dim * sizeof(U);
 
         // Use buffer_store_dwordx4
@@ -233,11 +235,9 @@ __device__ inline static void store(const GL &dst, const RV &src, const COORD &i
                 );
             }
         } else {
-            if (offset < src.length) {
-                #pragma unroll
-                for (int i = 0; i < RV::inner_dim; i++) {
-                    dst_ptr[offset + i] = base_types::convertor<U, T>::convert(src[0][i]);
-                }
+            #pragma unroll
+            for (int i = 0; i < RV::inner_dim; i++) {
+                dst_ptr[offset + i] = base_types::convertor<U, T>::convert(src[0][i]);
             }
         }
     }

@@ -8,6 +8,8 @@ struct test_subvec {
     template<typename RT_SHAPE, typename ST_SHAPE, int S, int NW, typename _SV_S> using valid = std::bool_constant<
         NW == 1 && S<=64 
         && S % _SV_S::value == 0 
+        && S*ST_SHAPE::cols*sizeof(T) <= kittens::MAX_SHARED_MEMORY
+        && (S*ST_SHAPE::cols*sizeof(T)) % (kittens::WARP_THREADS * 4) == 0
         && sizeof(dtype) != 1
     >;
     static inline const std::string test_identifier = std::is_same_v<T, kittens::bf16> ? "shared_vec_convert_gmem=bf16" :
@@ -30,6 +32,7 @@ struct test_subvec {
         kittens::load(shared_vec, input, {});
         __builtin_amdgcn_s_waitcnt(0);
         __builtin_amdgcn_s_barrier();
+        __builtin_amdgcn_sched_barrier(0);
         #pragma unroll
         for(int i = 0; i < S/SV_S; i++) {
             auto ref = kittens::subvec_inplace<ST_SHAPE::cols*SV_S>(shared_vec, i);

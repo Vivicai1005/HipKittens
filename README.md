@@ -62,7 +62,7 @@ make -j64
 
 ## Quick start: running kernels
 
-We assume you will run the following on an MI350X or MI355X unless otherwise specified. 
+We assume you will run the following on an MI350X or MI355X unless otherwise specified. You should use the CDNA3 branch of HK to run on the MI300X or MI325X.
 
 1. **BF16 GEMM**
 ```bash
@@ -73,6 +73,7 @@ make clean && make
 python test_python.py
 
 # On the mi300x or mi325x run:
+git checkout cdna3 # not the main branch!
 cd kernels/gemm/bf16fp32/mi325x/
 make clean && make
 python test_python.py
@@ -131,6 +132,7 @@ Potental issues:
 
 Under [HipKittens/analysis](https://github.com/HazyResearch/HipKittens/tree/main/analysis) we provide scripts and instructions to benchmark all the HK kernels from our paper. This will sweep over different dimensions and settings, and we provide plotting scripts. 
 
+**Note:** We also provide the instructions to reproduce our baselines (Triton, CK, HipBLASLT, Mojo, etc.) in [HipKittens/analysis/baselines](https://github.com/HazyResearch/HipKittens/tree/main/analysis/baselines)! As these are constantly evolving frameworks, we remind that our results are collected in November 2025.
 
 ## Training
 
@@ -143,7 +145,7 @@ We provide resources for profiling kernels, dockers, and HipKittens in [HipKitte
 ### Get in touch!
 
 Contact: William Hu [willhu@stanford.edu](willhu@stanford.edu) and Simran Arora [simran@cs.stanford.edu](simran@cs.stanford.edu).
-Join us on Discord to get involved, [invitation link](https://discord.com/channels/1189498204333543425/1300872762163728550)! We welcome community contributions.
+Join us on Discord to get involved, [GPU Mode Invite](https://discord.gg/ssgGe4HT) and then you can join the [TK channel](https://discord.com/channels/1189498204333543425/1300872762163728550)! We welcome community contributions.
 
 If you use or build on this work, please consider citing:
 ```

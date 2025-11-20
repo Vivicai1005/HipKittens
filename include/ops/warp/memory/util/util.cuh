@@ -115,9 +115,9 @@ using as3_uint32_ptr = uint32_t __attribute__((address_space(3)))*;
 using int32x4_t = int32_t __attribute__((ext_vector_type(4)));
 
 extern "C" __device__ void 
-llvm_amdgcn_raw_buffer_load_lds(int32x4_t rsrc, // does not change (buffer resource; scalar array?)
-                                as3_uint32_ptr lds_ptr, // does not change
-                                int size, // does not change (16 bytes)
+llvm_amdgcn_raw_buffer_load_lds(int32x4_t rsrc,
+                                as3_uint32_ptr lds_ptr,
+                                int size,
                                 int voffset, 
                                 int soffset, 
                                 int offset,  // does not change (0); instruction offset
